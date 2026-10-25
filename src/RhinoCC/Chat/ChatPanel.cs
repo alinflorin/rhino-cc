@@ -31,7 +31,6 @@ namespace RhinoCC.Chat
         private const int MaxImageBytes = 5 * 1024 * 1024;
         private readonly UITimer _timer = new UITimer { Interval = 0.15 };
         private bool _dirty = true;
-        private bool _synced;
         private string _shownRtf;
         private bool _updating;
 
@@ -107,7 +106,8 @@ namespace RhinoCC.Chat
             {
                 try
                 {
-                    if (!_synced) { _synced = true; _chat.Sync(); _dirty = true; }
+                    // follows the active document, however it became active (open, tab switch, close)
+                    _chat.Sync();
                     if (_dirty) Refresh();
                     else if (_chat.Running) ShowStatus();
                 }

@@ -86,6 +86,7 @@ namespace RhinoCC.Chat
             _doc = doc;
             var store = new ConversationStore(new DocStringStore(doc));
             Conversations = store.List();
+            RhinoCC.Core.Log.Write($"document '{doc.Name ?? "(untitled)"}' (#{doc.RuntimeSerialNumber}): {Conversations.Count} saved conversation(s)");
             Current = Conversations.Count > 0 ? store.Load(Conversations[0].Id) : null;
             if (Current == null) Current = NewConversation();
             Changed?.Invoke();
@@ -140,7 +141,10 @@ namespace RhinoCC.Chat
             if (_doc == null || c == null) return;
             var store = new ConversationStore(new DocStringStore(_doc));
             store.Save(c);
+            RhinoCC.Core.Log.Write($"saved conversation '{c.Title}' into '{_doc.Name ?? "(untitled)"}'");
             Conversations = store.List();
+            // the strings are part of the file, but Rhino only writes a document it considers changed
+            _doc.Modified = true;
         }
 
         // ------------------------------------------------------------ turns
