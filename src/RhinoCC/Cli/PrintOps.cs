@@ -17,6 +17,11 @@ namespace RhinoCC.Cli
         public TriMesh Mesh;
         public List<RhinoObject> Objects;
         public double ToMm;
+        /// <summary>Tilt already applied to the geometry.</summary>
+        public double Applied;
+
+        /// <summary>The piece before it was turned for printing: tilts are ranked and named from this frame.</summary>
+        public TriMesh Canonical() => Mesh.Map(p => RhinoCC.Core.Printing.Supports.Untilt(p, Applied));
     }
 
     /// <summary>
@@ -44,6 +49,20 @@ namespace RhinoCC.Cli
         {
             doc.Strings.SetString(SettingsKey, s.ToJson());
             RaiseChanged();
+        }
+
+        private const string TiltKey = "RhinoCC.tilt";
+
+        /// <summary>How far the piece has been turned about X for printing (what the geometry in the document has had applied).</summary>
+        public static double AppliedTilt(RhinoDoc doc) =>
+            double.TryParse(doc.Strings.GetValue(TiltKey), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : 0;
+
+        /// <summary>The piece is turned for real, so the support maths works on it as it is: no further tilt.</summary>
+        public static PrintParams Params(PrintSettings s)
+        {
+            var p = PrintParams.From(s);
+            p.Tilt = 0;
+            return p;
         }
 
         public static double ToMm(RhinoDoc doc) => RhinoMath.UnitScale(doc.ModelUnitSystem, UnitSystem.Millimeters);
@@ -107,7 +126,7 @@ namespace RhinoCC.Cli
                 }
             }
             if (tris.Count == 0) throw new CliException("the objects could not be meshed");
-            return new Piece { Mesh = new TriMesh(verts.ToArray(), tris.ToArray()), Objects = targets.ToList(), ToMm = toMm };
+            return new Piece { Mesh = new TriMesh(verts.ToArray(), tris.ToArray()), Objects = targets.ToList(), ToMm = toMm, Applied = AppliedTilt(doc) };
         }
 
         /// <summary>A render mesh with outward normals when the object is a closed solid (the overhang logic reads the normals).</summary>
@@ -269,7 +288,7 @@ namespace RhinoCC.Cli
             if (!s.Supports.Enabled) { ShowPoints(doc, false); return new KeyValuePair<int, int>(0, 0); }
             ShowPoints(doc, true);
             if (list.Count == 0) return new KeyValuePair<int, int>(0, 0);
-            var plan = Core.Printing.Supports.Plan(piece.Mesh, list, PrintParams.From(s));
+            var plan = Core.Printing.Supports.Plan(piece.Mesh, list, Params(s));
             var layer = Layer(doc, SupportsLayer, System.Drawing.Color.FromArgb(255, 150, 20));
             var tol = doc.ModelAbsoluteTolerance;
             var k = 1 / piece.ToMm;
@@ -360,8 +379,9 @@ namespace RhinoCC.Cli
         public static string Follow(RhinoDoc doc, PrintSettings before, PrintSettings after)
         {
             var notes = new List<string>();
-            var sup = JsonSig(before.Supports) != JsonSig(after.Supports) || before.Tilt != after.Tilt;
-            var spr = JsonSig(before.Sprue) != JsonSig(after.Sprue);
+            var turn = after.Supports.Enabled && Math.Abs(after.Tilt - AppliedTilt(doc)) > 1e-9;
+            var sup = turn || JsonSig(before.Supports) != JsonSig(after.Supports);
+            var spr = turn || JsonSig(before.Sprue) != JsonSig(after.Sprue);
             if (!sup && !spr) return "";
             var rec = doc.BeginUndoRecord("RhinoCC print settings");
             try
@@ -369,6 +389,13 @@ namespace RhinoCC.Cli
                 Piece piece = null;
                 try { piece = Gather(doc, DefaultTargets(doc)); }
                 catch (CliException) { /* nothing to build on */ }
+                if (turn && piece != null)
+                {
+                    TurnPiece(doc, piece, after);
+                    notes.Add($"piece turned to {Fmt.N(after.Tilt)}° about X");
+                    piece = Gather(doc, DefaultTargets(doc));
+                    SaveSettings(doc, after); // a hand-placed sprue moved with the piece
+                }
                 if (sup)
                 {
                     if (!after.Supports.Enabled) { var n = ClearSupportSolids(doc); ShowPoints(doc, false); if (n > 0) notes.Add("supports hidden"); }
@@ -387,6 +414,40 @@ namespace RhinoCC.Cli
             finally { doc.EndUndoRecord(rec); }
             doc.Views.Redraw();
             return string.Join(", ", notes);
+        }
+
+        /// <summary>
+        /// Turns the piece (and its support points and a hand-placed sprue spot) about X through its centre to the wanted tilt, then
+        /// sets it down so its lowest point is <c>lift</c> above the plate (z = 0): what the printer will see.
+        /// </summary>
+        private static void TurnPiece(RhinoDoc doc, Piece piece, PrintSettings s)
+        {
+            var delta = (s.Tilt - piece.Applied) * Math.PI / 180;
+            var toMm = piece.ToMm;
+            var box = BoundingBox.Empty;
+            foreach (var o in piece.Objects) box.Union(o.Geometry.GetBoundingBox(true));
+            var turn = Transform.Rotation(delta, Vector3d.XAxis, box.Center);
+            foreach (var o in piece.Objects.ToList()) Poses.Transform(doc, o.Id, turn, false);
+            foreach (var o in OnLayerObjects(doc, PointsLayer)) doc.Objects.Transform(o.Id, turn, true);
+            if (s.Sprue.At != null)
+            {
+                var p = new Point3d(s.Sprue.At[0], s.Sprue.At[1], s.Sprue.At[2]);
+                p.Transform(turn);
+                s.Sprue.At = new[] { p.X, p.Y, p.Z };
+            }
+            var turned = Gather(doc, DefaultTargets(doc));
+            var lowest = turned.Mesh.Verts.Min(v => v.Z) / toMm;
+            var drop = Transform.Translation(0, 0, s.Supports.Lift / toMm - lowest);
+            foreach (var o in DefaultTargets(doc)) Poses.Transform(doc, o.Id, drop, false);
+            foreach (var o in OnLayerObjects(doc, PointsLayer)) doc.Objects.Transform(o.Id, drop, true);
+            if (s.Sprue.At != null)
+            {
+                var p = new Point3d(s.Sprue.At[0], s.Sprue.At[1], s.Sprue.At[2]);
+                p.Transform(drop);
+                s.Sprue.At = new[] { p.X, p.Y, p.Z };
+            }
+            doc.Strings.SetString(TiltKey, s.Tilt.ToString(CultureInfo.InvariantCulture));
+            Store(doc, ReadSupports(doc));
         }
 
         private static string JsonSig(object o) => Newtonsoft.Json.JsonConvert.SerializeObject(o);

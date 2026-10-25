@@ -9,7 +9,7 @@
     <TargetExt>.rhp</TargetExt>
     <NoWarn>$(NoWarn);NU1701;NU1903</NoWarn>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>0.0.5</Version>
+    <Version>0.0.6</Version>
     <Title>RhinoCC</Title>
     <Company>Alin-Florin Ciu</Company>
     <Description>Blank Rhino plugin for Rhino 7 and Rhino 8.</Description>

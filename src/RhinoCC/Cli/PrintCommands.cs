@@ -39,7 +39,7 @@ namespace RhinoCC.Cli
             new Key { Name = "metal", Help = "metal for weights: " + Metals.Names, Get = s => s.Metal, Set = (s, v) => s.Metal = v.ToLowerInvariant() },
             new Key { Name = "process", Help = "casting (resin master for lost-wax casting) or direct", Get = s => s.Process, Set = (s, v) => s.Process = v.ToLowerInvariant() },
             Num("min-wall", "thinnest acceptable wall, mm (default for `analyze`)", s => s.MinWall, (s, v) => s.MinWall = v),
-            Num("tilt", "print orientation: degrees about X before the piece sits on the plate (30 usual, 45 sometimes)", s => s.Tilt, (s, v) => s.Tilt = v),
+            Num("tilt", "print orientation: degrees about X. With supports on, setting it TURNS the piece in Rhino (about its centre) and sets it on the plate, z = 0 (30 usual, 45 sometimes); tilt=0 turns it back", s => s.Tilt, (s, v) => s.Tilt = v),
             new Key { Name = "notes", Help = "free text about the piece", Get = s => s.Notes, Set = (s, v) => s.Notes = v },
             Flag("supports.enabled", "use supports (off: nothing is generated, the points are hidden)", s => s.Supports.Enabled, (s, v) => s.Supports.Enabled = v),
             Num("supports.tip-radius", "radius where a pillar touches the piece, mm (0.1-1)", s => s.Supports.TipRadius, (s, v) => s.Supports.TipRadius = v),
@@ -69,8 +69,8 @@ namespace RhinoCC.Cli
                 try
                 {
                     var piece = PrintOps.Gather(doc, PrintOps.DefaultTargets(doc));
-                    var f = RhinoCC.Core.Printing.Supports.Frame(piece.Mesh, s.Tilt, s.Supports.Lift);
-                    sb.Append($"as oriented ({Fmt.N(s.Tilt)}° tilt, {Fmt.N(s.Supports.Lift)} mm lift) the piece needs {Fmt.N(f.Size.X)} x {Fmt.N(f.Size.Y)} x {Fmt.N(f.Size.Z)} mm: {(f.Fits ? "fits" : "DOES NOT FIT")} the printer");
+                    var f = RhinoCC.Core.Printing.Supports.Frame(piece.Mesh, 0, s.Supports.Lift);
+                    sb.Append($"as oriented ({Fmt.N(piece.Applied)}° applied tilt, {Fmt.N(s.Supports.Lift)} mm lift) the piece needs {Fmt.N(f.Size.X)} x {Fmt.N(f.Size.Y)} x {Fmt.N(f.Size.Z)} mm: {(f.Fits ? "fits" : "DOES NOT FIT")} the printer");
                 }
                 catch (CliException e) { sb.Append("(" + e.Message + ")"); }
                 return CliResult.Ok(sb.ToString());
@@ -104,21 +104,21 @@ namespace RhinoCC.Cli
 
             AddTargets(cli.Register2(new CommandSpec("orient", "Printing",
                 "orient [ID... | --selected | --layer NAME | --name NAME] [--min DEG] [--max DEG] [--step DEG]",
-                "Ranks print orientations (tilt about X, default -60..60 in 5° steps) by the overhanging area that would need supports plus the flat area lying on the plate, and says which fit the printer. Purely geometric: it cannot see which side carries the fine detail, so judge it against the rules (fine detail faces up). Apply one with `print-set tilt=N`.", a =>
+                "Ranks print orientations (tilt about X from the piece's original orientation, default -60..60 in 5° steps) by the overhanging area that would need supports plus the flat area lying on the plate, and says which fit the printer. Purely geometric: it cannot see which side carries the fine detail, so judge it against the rules (fine detail faces up). Apply one with `print-set tilt=N`.", a =>
             {
                 var doc = RhinoCommands.Doc();
                 var s = PrintOps.Settings(doc);
                 var min = a.OptNumber("min") ?? -60; var max = a.OptNumber("max") ?? 60; var step = a.OptNumber("step") ?? 5;
                 if (step < 1 || max < min) throw new CliException("--step must be at least 1 and --max not below --min");
                 var piece = PrintOps.Gather(doc, Targets(doc, a));
-                var rows = RhinoCC.Core.Printing.Supports.RankTilts(piece.Mesh, min, max, step, s.Supports.OverhangAngle, s.Supports.Lift);
+                var rows = RhinoCC.Core.Printing.Supports.RankTilts(piece.Canonical(), min, max, step, s.Supports.OverhangAngle, s.Supports.Lift);
                 var sb = new StringBuilder();
-                sb.AppendLine($"tilt about X, overhang within {Fmt.N(s.Supports.OverhangAngle)}° of facing down; areas in mm², size in mm (lift {Fmt.N(s.Supports.Lift)} mm included); current tilt {Fmt.N(s.Tilt)}°");
+                sb.AppendLine($"tilt about X, overhang within {Fmt.N(s.Supports.OverhangAngle)}° of facing down; areas in mm², size in mm (lift {Fmt.N(s.Supports.Lift)} mm included); applied tilt {Fmt.N(piece.Applied)}°");
                 foreach (var r in rows.Take(6))
                     sb.AppendLine($"  {Fmt.N(r.Tilt),6}°  overhang {Fmt.N(r.Overhang),9}  flat on plate {Fmt.N(r.Flat),9}  size {Fmt.N(r.Size.X)} x {Fmt.N(r.Size.Y)} x {Fmt.N(r.Size.Z)}  {(r.Fits ? "fits" : "does not fit")}");
-                var now = rows.FirstOrDefault(r => Math.Abs(r.Tilt - s.Tilt) < 1e-9);
+                var now = rows.FirstOrDefault(r => Math.Abs(r.Tilt - piece.Applied) < 1e-9);
                 if (now != null && !rows.Take(6).Contains(now)) sb.AppendLine($"  (current {Fmt.N(now.Tilt)}°: overhang {Fmt.N(now.Overhang)}, flat {Fmt.N(now.Flat)})");
-                sb.Append("apply with: print-set tilt=" + Fmt.N(rows[0].Tilt));
+                sb.Append("apply (turns the piece, needs supports on) with: print-set tilt=" + Fmt.N(rows[0].Tilt));
                 return CliResult.Ok(sb.ToString());
             })).Example("orient --min 0 --max 60"));
 
@@ -131,13 +131,13 @@ namespace RhinoCC.Cli
                 var toMm = PrintOps.ToMm(doc);
                 var list = PrintOps.ReadSupports(doc);
                 var sb = new StringBuilder();
-                sb.AppendLine($"supports {(s.Supports.Enabled ? "on" : "OFF")}, tilt {Fmt.N(s.Tilt)}°, {list.Count} contact(s): {list.Count(x => x.Source == "auto")} auto, {list.Count(x => x.Source == "manual")} manual (*)");
+                sb.AppendLine($"supports {(s.Supports.Enabled ? "on" : "OFF")}, tilt set {Fmt.N(s.Tilt)}° applied {Fmt.N(PrintOps.AppliedTilt(doc))}°, {list.Count} contact(s): {list.Count(x => x.Source == "auto")} auto, {list.Count(x => x.Source == "manual")} manual (*)");
                 foreach (var x in list)
                     sb.AppendLine($"  {x.Id}{(x.Source == "manual" ? "*" : " ")}  {Fmt.N(x.P.X / toMm)},{Fmt.N(x.P.Y / toMm)},{Fmt.N(x.P.Z / toMm)}{(x.Tip.HasValue ? "  tip " + Fmt.N(x.Tip.Value) + " mm" : "")}");
                 try
                 {
                     var piece = PrintOps.Gather(doc, PrintOps.DefaultTargets(doc));
-                    var f = RhinoCC.Core.Printing.Supports.Frame(piece.Mesh, s.Tilt, s.Supports.Lift);
+                    var f = RhinoCC.Core.Printing.Supports.Frame(piece.Mesh, 0, s.Supports.Lift);
                     sb.Append($"printed size {Fmt.N(f.Size.X)} x {Fmt.N(f.Size.Y)} x {Fmt.N(f.Size.Z)} mm: {(f.Fits ? "fits" : "DOES NOT FIT")} the printer");
                 }
                 catch (CliException e) { sb.Append("(" + e.Message + ")"); }
@@ -158,7 +158,7 @@ namespace RhinoCC.Cli
                 var piece = PrintOps.Gather(doc, Targets(doc, a));
                 var existing = PrintOps.ReadSupports(doc);
                 var manual = existing.Where(x => x.Source == "manual").ToList();
-                var r = RhinoCC.Core.Printing.Supports.Auto(piece.Mesh, PrintParams.From(s), auto, manual, PrintOps.NextId(existing));
+                var r = RhinoCC.Core.Printing.Supports.Auto(piece.Mesh, PrintOps.Params(s), auto, manual, PrintOps.NextId(existing));
                 if (r == null) throw new CliException("the piece has no geometry to support");
                 var rec = doc.BeginUndoRecord("RhinoCC supports");
                 try
@@ -310,12 +310,14 @@ namespace RhinoCC.Cli
         {
             var s = PrintOps.Settings(doc);
             if (!s.Supports.Enabled) throw new CliException("supports are turned off; enable them first with `print-set supports.enabled=on` (only if the user asked for supports)");
-            return s;
+            // the piece must really stand at the set tilt before supports are worked out
+            if (Math.Abs(s.Tilt - PrintOps.AppliedTilt(doc)) > 1e-9) PrintOps.Follow(doc, s, s);
+            return PrintOps.Settings(doc);
         }
 
         private static string PrintFits(Piece piece, PrintSettings s)
         {
-            var f = RhinoCC.Core.Printing.Supports.Frame(piece.Mesh, s.Tilt, s.Supports.Lift);
+            var f = RhinoCC.Core.Printing.Supports.Frame(piece.Mesh, 0, s.Supports.Lift);
             return f == null ? "" : $" Printed size {Fmt.N(f.Size.X)} x {Fmt.N(f.Size.Y)} x {Fmt.N(f.Size.Z)} mm: {(f.Fits ? "fits" : "DOES NOT FIT")} the printer.";
         }
 

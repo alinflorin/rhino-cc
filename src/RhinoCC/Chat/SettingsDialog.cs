@@ -283,7 +283,7 @@ namespace RhinoCC.Chat
             p.Items.Add(Section("Printer", true));
             p.Items.Add(Field("Printer", printer));
             p.Items.Add(Field("Minimum wall", Unit(minWall, "mm"), "`analyze` flags walls thinner than this."));
-            p.Items.Add(Field("Tilt", Line(Unit(tilt, "°"), suggest), "The piece is turned this much about X before it sits on the plate. 30° is usual; fine detail must face up."));
+            p.Items.Add(Field("Tilt", Line(Unit(tilt, "°"), suggest), "With supports on, the piece is really turned this much about X and set on the plate (z = 0). 30° is usual; fine detail must face up. 0 turns it back."));
             p.Items.Add(_tiltRows);
 
             p.Items.Add(Section("Supports"));
@@ -554,13 +554,13 @@ namespace RhinoCC.Chat
         private void SuggestTilt()
         {
             var s = _s;
-            Compute(p => Supports.RankTilts(p.Mesh, -60, 60, 5, s.Supports.OverhangAngle, s.Supports.Lift), (piece, rows) =>
+            Compute(p => Supports.RankTilts(p.Canonical(), -60, 60, 5, s.Supports.OverhangAngle, s.Supports.Lift), (piece, rows) =>
             {
                 _tiltRows.Items.Clear();
                 foreach (var r in rows.Take(5))
                 {
                     var tilt = r.Tilt;
-                    var use = new Button { Text = "Use", Enabled = Math.Abs(_s.Tilt - tilt) > 1e-9 };
+                    var use = new Button { Text = "Use", Enabled = Math.Abs(PrintOps.AppliedTilt(_doc) - tilt) > 1e-9 };
                     use.Click += (a, b) => { Apply(x => x.Tilt = tilt); _tiltRows.Items.Clear(); };
                     _tiltRows.Items.Add(Line(
                         new Label { Text = $"{r.Tilt:0}°", Width = 50, Font = Fonts.Sans(9f, _tiltRows.Items.Count == 0 ? FontStyle.Bold : FontStyle.None) },
@@ -576,7 +576,7 @@ namespace RhinoCC.Chat
             var s = _s;
             var manual = PrintOps.ReadSupports(_doc).Where(x => x.Source == "manual").ToList();
             var next = PrintOps.NextId(PrintOps.ReadSupports(_doc));
-            Compute(p => Core.Printing.Supports.Auto(p.Mesh, PrintParams.From(s), new AutoParams { Angle = s.Supports.OverhangAngle, Spacing = s.Supports.Spacing }, manual, next), (piece, r) =>
+            Compute(p => Core.Printing.Supports.Auto(p.Mesh, PrintOps.Params(s), new AutoParams { Angle = s.Supports.OverhangAngle, Spacing = s.Supports.Spacing }, manual, next), (piece, r) =>
             {
                 if (r == null) { Fail("The piece has no geometry to support."); return; }
                 var rec = _doc.BeginUndoRecord("RhinoCC supports");
