@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Everything that does not touch Rhino: the fake CLI, the MCP server, the agent engines and the
+       conversation model. Kept free of RhinoCommon so it can be tested on plain Linux. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <RootNamespace>RhinoCC.Core</RootNamespace>
+    <NoWarn>$(NoWarn);NU1903</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Rhino ships its own Newtonsoft.Json; 9.0.1 is the oldest one either Rhino version can satisfy. -->
+    <PackageReference Include="Newtonsoft.Json" Version="9.0.1" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+</Project>

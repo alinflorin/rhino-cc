@@ -1,0 +1,29 @@
+using RhinoCC.Core.Agents;
+
+namespace RhinoCC.Chat
+{
+    /// <summary>The plugin's persistent settings (Rhino keeps them per user, outside the model).</summary>
+    internal static class AppSettings
+    {
+        public const int DefaultPort = 45600;
+
+        public const string DefaultInstructions =
+            "You are working inside Rhino 3D with the user, who is looking at the viewports while you work: every change you make appears live in front of them.\n" +
+            "- Run `status` first. Work in small, deliberate steps and say what you are doing.\n" +
+            "- You cannot see the screen, but you can see the model with `shot`. Never claim the model looks right without having looked at a picture.\n" +
+            "- Prefer the commands of the `rhino` line over `cmd`/`script`; use those for what the line cannot do.\n" +
+            "- Ask before deleting things you did not create.";
+
+        private static Rhino.PersistentSettings S => RhinoCCPlugin.Instance.Settings;
+
+        public static string DefaultAgent { get => S.GetString("agent", "claude"); set => S.SetString("agent", value); }
+        public static string ClaudePath { get => S.GetString("claudePath", "claude"); set => S.SetString("claudePath", value); }
+        public static string CodexPath { get => S.GetString("codexPath", "codex"); set => S.SetString("codexPath", value); }
+        public static string HostShell { get => S.GetString("hostShell", "/bin/sh"); set => S.SetString("hostShell", value); }
+        public static int Port { get => S.GetInteger("port", DefaultPort); set => S.SetInteger("port", value); }
+        public static bool AllTools { get => S.GetBool("allTools", false); set => S.SetBool("allTools", value); }
+        public static string Instructions { get => S.GetString("instructions", DefaultInstructions); set => S.SetString("instructions", value); }
+
+        public static AgentSettings ForAgents() => new AgentSettings { ClaudePath = ClaudePath, CodexPath = CodexPath, HostShell = HostShell };
+    }
+}

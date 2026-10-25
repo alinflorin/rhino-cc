@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/RhinoCC.Core/RhinoCC.Core.csproj" />
+    <Project Path="src/RhinoCC.Tests/RhinoCC.Tests.csproj" />
+    <Project Path="src/RhinoCC/RhinoCC.csproj" />
+  </Folder>
+</Solution>

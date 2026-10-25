@@ -1,0 +1,18 @@
+{
+  // Start netcoredbg (Windows build) inside the same Wine prefix as Rhino first:
+  //   wine netcoredbg.exe --interpreter=vscode --server=4711
+  // Untested on Wine; adjust the port / sourceFileMap if needed.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach to Rhino 8 (Wine, netcoredbg)",
+      "type": "coreclr",
+      "request": "attach",
+      "processName": "Rhino.exe",
+      "debugServer": 4711,
+      "sourceFileMap": {
+        "Z:\\home": "/home"
+      }
+    }
+  ]
+}
