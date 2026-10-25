@@ -90,7 +90,12 @@ namespace RhinoCC.Chat
             Changed?.Invoke();
         }
 
-        private static Conversation NewConversation() => new Conversation { Agent = AppSettings.DefaultAgent };
+        private static Conversation NewConversation() => new Conversation
+        {
+            Agent = AppSettings.DefaultAgent,
+            Model = AppSettings.DefaultModel.Length > 0 ? AppSettings.DefaultModel : null,
+            Effort = AppSettings.DefaultEffort.Length > 0 ? AppSettings.DefaultEffort : null,
+        };
 
         public void New()
         {

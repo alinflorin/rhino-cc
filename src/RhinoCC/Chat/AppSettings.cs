@@ -29,6 +29,9 @@ namespace RhinoCC.Chat
         private static Rhino.PersistentSettings S => RhinoCCPlugin.Instance.Settings;
 
         public static string DefaultAgent { get => S.GetString("agent", "claude"); set => S.SetString("agent", value); }
+        // "" = the agent's own default
+        public static string DefaultModel { get => S.GetString("model", ""); set => S.SetString("model", value ?? ""); }
+        public static string DefaultEffort { get => S.GetString("effort", ""); set => S.SetString("effort", value ?? ""); }
         public static string ClaudePath { get => S.GetString("claudePath", "claude"); set => S.SetString("claudePath", value); }
         public static string CodexPath { get => S.GetString("codexPath", "codex"); set => S.SetString("codexPath", value); }
         public static string HostShell { get => S.GetString("hostShell", "/bin/sh"); set => S.SetString("hostShell", value); }

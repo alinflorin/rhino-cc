@@ -16,6 +16,24 @@ namespace RhinoCC.Chat
             var agent = new DropDown();
             agent.Items.AddRange(Engines.All.Select(en => new ListItem { Text = en.Label, Key = en.Id }));
             agent.SelectedKey = AppSettings.DefaultAgent;
+            var model = new ComboBox { Text = AppSettings.DefaultModel };
+            var effort = new DropDown();
+            const string none = "(default)";
+            void FillAgent()
+            {
+                var engine = Engines.Get(agent.SelectedKey);
+                var m = model.Text;
+                model.Items.Clear();
+                foreach (var mi in engine.Models) model.Items.Add(new ListItem { Text = mi.Id, Key = mi.Id });
+                model.Text = m;
+                var wanted = effort.SelectedKey ?? (AppSettings.DefaultEffort.Length > 0 ? AppSettings.DefaultEffort : none);
+                effort.Items.Clear();
+                effort.Items.Add(new ListItem { Text = none, Key = none });
+                foreach (var f in engine.Efforts) effort.Items.Add(new ListItem { Text = f, Key = f });
+                effort.SelectedKey = engine.Efforts.Contains(wanted) ? wanted : none;
+            }
+            agent.SelectedIndexChanged += (s, e) => FillAgent();
+            FillAgent();
             var claude = new TextBox { Text = AppSettings.ClaudePath };
             var codex = new TextBox { Text = AppSettings.CodexPath };
             var shell = new TextBox { Text = AppSettings.HostShell, Enabled = ProcessHost.IsWine };
@@ -46,6 +64,8 @@ namespace RhinoCC.Chat
             {
                 var restart = (int)port.Value != AppSettings.Port;
                 AppSettings.DefaultAgent = agent.SelectedKey;
+                AppSettings.DefaultModel = model.Text.Trim();
+                AppSettings.DefaultEffort = effort.SelectedKey == none ? "" : effort.SelectedKey;
                 AppSettings.ClaudePath = claude.Text.Trim().Length > 0 ? claude.Text.Trim() : "claude";
                 AppSettings.CodexPath = codex.Text.Trim().Length > 0 ? codex.Text.Trim() : "codex";
                 AppSettings.HostShell = shell.Text.Trim().Length > 0 ? shell.Text.Trim() : "/bin/sh";
@@ -68,6 +88,8 @@ namespace RhinoCC.Chat
                 {
                     new TableRow(new Label { Text = where, TextColor = Colors.Gray }),
                     new TableRow(Row("Default agent for new conversations", agent)),
+                    new TableRow(Row("Default model (empty = agent's own)", model)),
+                    new TableRow(Row("Default thinking level", effort)),
                     new TableRow(Row("Claude executable", claude)),
                     new TableRow(Row("Codex executable", codex)),
                     new TableRow(Row("Host shell (Wine only)", shell)),

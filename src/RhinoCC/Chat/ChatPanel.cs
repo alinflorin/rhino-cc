@@ -36,6 +36,9 @@ namespace RhinoCC.Chat
 
         public ChatPanel()
         {
+            // a docked panel otherwise opens at a sliver
+            MinimumSize = new Size(380, 520);
+            Size = new Size(460, 700);
             var newButton = new Button { Text = "New" };
             var deleteButton = new Button { Text = "Delete" };
             var settingsButton = new Button { Text = "Settings…" };
@@ -210,7 +213,10 @@ namespace RhinoCC.Chat
             _effort.Items.Add(new ListItem { Text = DefaultItem, Key = DefaultItem });
             foreach (var e in engine.Efforts) _effort.Items.Add(new ListItem { Text = e, Key = e });
             _effort.SelectedKey = engine.Efforts.Contains(wanted) ? wanted : DefaultItem;
-            _model.DataStore = engine.Models.Select(m => m.Id).ToList();
+            var model = _model.Text;
+            _model.Items.Clear();
+            foreach (var m in engine.Models) _model.Items.Add(new ListItem { Text = m.Id, Key = m.Id });
+            _model.Text = model;
         }
 
         private void Refresh()
