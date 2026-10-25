@@ -65,7 +65,7 @@ namespace RhinoCC.Cli
               .Example("analyze --layer shank --min-wall 1"));
         }
 
-        private static List<RhinoObject> Select(RhinoDoc doc, CliArgs a)
+        internal static List<RhinoObject> Select(RhinoDoc doc, CliArgs a)
         {
             IEnumerable<RhinoObject> all;
             if (a.Positional.Count > 0) all = Fmt.Ids(doc, a.Positional).Select(id => doc.Objects.FindId(id));

@@ -27,6 +27,8 @@ namespace RhinoCC.Cli
             Materials(cli);
             Viewing(cli);
             AnalyzeCommand.Register(cli);
+            ContactsCommand.Register(cli);
+            PoseCommands.Register(cli);
             Scripting(cli);
             return cli;
         }
@@ -469,7 +471,7 @@ namespace RhinoCC.Cli
         /// <summary>Transforms (or copies) an object.</summary>
         private static Guid Xf(RhinoDoc doc, Guid id, Transform x, bool copy)
         {
-            return doc.Objects.Transform(id, x, !copy);
+            return Poses.Transform(doc, id, x, copy);
         }
 
         private static CommandSpec Edit(string name, string usage, string summary, Func<CliArgs, RhinoDoc, List<Guid>, CliResult> run) =>
@@ -503,17 +505,40 @@ namespace RhinoCC.Cli
                 return CliResult.Ok($"moved {ids.Count} object(s)");
             }).Opt("by", "X,Y,Z", "The offset."));
 
-            cli.Register(Edit("rotate", "rotate ID... --angle DEG [--axis x|y|z] [--center X,Y,Z]", "Rotates objects about an axis through a centre (default z, through the origin).", (a, doc, ids) =>
+            cli.Register(Edit("rotate", "rotate ID... (--angle DEG [--axis x|y|z] | --matrix R11,R12,R13,R21,...,R33 [--invert]) [--center X,Y,Z]", "Rotates objects about a point: by an angle about an axis (default z), or by a 3x3 rotation matrix given row by row (--invert undoes it). The centre defaults to the origin.", (a, doc, ids) =>
             {
-                var angle = a.OptNumber("angle") ?? throw new CliException("--angle DEG is required");
-                var axis = (a.Opt("axis") ?? "z").ToLowerInvariant();
-                var dir = axis == "x" ? Vector3d.XAxis : axis == "y" ? Vector3d.YAxis : axis == "z" ? Vector3d.ZAxis : throw new CliException("--axis is x, y or z");
                 var center = a.Has("center") ? Fmt.Point(a.Opt("center"), "--center") : Point3d.Origin;
-                var x = Transform.Rotation(RhinoMath.ToRadians(angle), dir, center);
+                Transform x;
+                string what;
+                if (a.Has("matrix"))
+                {
+                    double[] m;
+                    try
+                    {
+                        m = RhinoCC.Core.Geometry.Rotation.Parse(a.Opt("matrix"));
+                        RhinoCC.Core.Geometry.Rotation.RequireRotation(m);
+                    }
+                    catch (ArgumentException e) { throw new CliException("--matrix: " + e.Message); }
+                    if (a.Has("invert")) m = RhinoCC.Core.Geometry.Rotation.Transpose(m);
+                    var r = Transform.Identity;
+                    for (var i = 0; i < 3; i++)
+                        for (var j = 0; j < 3; j++) r[i, j] = m[i * 3 + j];
+                    x = Transform.Translation(new Vector3d(center)) * r * Transform.Translation(-new Vector3d(center));
+                    what = a.Has("invert") ? "by the inverse matrix" : "by the matrix";
+                }
+                else
+                {
+                    var angle = a.OptNumber("angle") ?? throw new CliException("--angle DEG or --matrix is required");
+                    var axis = (a.Opt("axis") ?? "z").ToLowerInvariant();
+                    var dir = axis == "x" ? Vector3d.XAxis : axis == "y" ? Vector3d.YAxis : axis == "z" ? Vector3d.ZAxis : throw new CliException("--axis is x, y or z");
+                    x = Transform.Rotation(RhinoMath.ToRadians(angle), dir, center);
+                    what = $"by {Fmt.N(angle)}° about {axis}";
+                }
                 foreach (var id in ids) Xf(doc, id, x, false);
                 doc.Views.Redraw();
-                return CliResult.Ok($"rotated {ids.Count} object(s) by {Fmt.N(angle)}° about {axis}");
-            }).Opt("angle", "DEG", "Angle in degrees.").Opt("axis", "x|y|z", "Axis (default z).").Opt("center", "X,Y,Z", "A point on the axis (default the origin)."));
+                return CliResult.Ok($"rotated {ids.Count} object(s) {what}");
+            }).Opt("angle", "DEG", "Angle in degrees.").Opt("axis", "x|y|z", "Axis (default z).").Opt("center", "X,Y,Z", "A point on the axis / the pivot (default the origin).")
+              .Opt("matrix", "R11,...,R33", "A rotation matrix, nine numbers row by row, e.g. the x/y/z axes from `pose` to line a part up.").Flag("invert", "Apply the inverse of --matrix."));
 
             cli.Register(Edit("scale", "scale ID... --factor F [--center X,Y,Z]", "Scales objects uniformly about a centre (default the origin).", (a, doc, ids) =>
             {
