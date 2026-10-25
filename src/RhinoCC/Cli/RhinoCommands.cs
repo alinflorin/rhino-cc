@@ -34,6 +34,20 @@ namespace RhinoCC.Cli
             return cli;
         }
 
+        /// <summary>Ids, id prefixes or object names, comma separated; or "selected".</summary>
+        private static List<Guid> ZoomTargets(RhinoDoc doc, string text)
+        {
+            if (text == "selected") return doc.Objects.GetSelectedObjects(false, false).Select(o => o.Id).ToList();
+            var ids = new List<Guid>();
+            foreach (var t in text.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0))
+            {
+                var named = doc.Objects.Where(o => string.Equals(o.Name, t, StringComparison.OrdinalIgnoreCase)).Select(o => o.Id).ToList();
+                if (named.Count > 0) ids.AddRange(named);
+                else ids.AddRange(Fmt.Ids(doc, new[] { t }));
+            }
+            return ids;
+        }
+
         internal static RhinoDoc Doc()
         {
             var doc = RhinoDoc.ActiveDoc;
@@ -630,6 +644,7 @@ namespace RhinoCC.Cli
                     return CliResult.Ok(string.Join("\n", Fmt.Ids(doc, a.Positional).Select(id =>
                     {
                         var o = doc.Objects.FindId(id);
+                        if (o == null) return $"{Fmt.Short(id)} (gone)";
                         var source = o.Attributes.MaterialSource;
                         var m = o.RenderMaterial;
                         var from = source == ObjectMaterialSource.MaterialFromObject ? "object" : source == ObjectMaterialSource.MaterialFromLayer ? "layer" : source.ToString();
@@ -712,12 +727,16 @@ namespace RhinoCC.Cli
                             throw new CliException($"no display mode '{a.Opt("display")}'. Available: " + string.Join(", ", Rhino.Display.DisplayModeDescription.GetDisplayModes().Select(m => m.EnglishName)));
                         vp.DisplayMode = mode;
                     }
-                    var targets = a.Has("zoom") ? (a.Opt("zoom") == "selected" ? doc.Objects.GetSelectedObjects(false, false).Select(o => o.Id).ToList() : Fmt.Ids(doc, a.Opt("zoom").Split(','))) : null;
+                    var targets = a.Has("zoom") ? ZoomTargets(doc, a.Opt("zoom")) : null;
                     if (targets != null && targets.Count > 0)
                     {
                         var box = BoundingBox.Empty;
-                        foreach (var id in targets) box.Union(doc.Objects.FindId(id).Geometry.GetBoundingBox(true));
-                        vp.ZoomBoundingBox(box);
+                        foreach (var id in targets)
+                        {
+                            var o = doc.Objects.FindId(id);
+                            if (o != null) box.Union(o.Geometry.GetBoundingBox(true));
+                        }
+                        if (box.IsValid) vp.ZoomBoundingBox(box);
                     }
                     else if (a.Has("view")) vp.ZoomExtents();
                     view.Redraw();
@@ -729,7 +748,7 @@ namespace RhinoCC.Cli
                         using (var ms = new MemoryStream())
                         {
                             bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-                            var r = CliResult.Ok($"{vp.Name} view, {vp.DisplayMode.EnglishName}, {w}x{h}");
+                            var r = CliResult.Ok($"{vp.Name} view, {vp.DisplayMode?.EnglishName ?? "?"}, {w}x{h}");
                             r.Images.Add(new CliImage { Mime = "image/png", Base64 = Convert.ToBase64String(ms.ToArray()) });
                             return r;
                         }
@@ -737,16 +756,21 @@ namespace RhinoCC.Cli
                 }
                 finally
                 {
-                    vp.DisplayMode = previousMode;
-                    vp.PopViewProjection();
-                    view.Redraw();
+                    // restoring must not hide the error that got us here
+                    try
+                    {
+                        if (previousMode != null) vp.DisplayMode = previousMode;
+                        vp.PopViewProjection();
+                        view.Redraw();
+                    }
+                    catch (Exception) { }
                 }
             }).Opt("view", "NAME", "top, bottom, front, back, left, right, perspective or iso (default: the active view as it is).")
               .Opt("camera", "X,Y,Z", "Camera position (with --target; either alone keeps the other as it is).").Opt("target", "X,Y,Z", "Point the camera looks at.")
               .Opt("up", "X,Y,Z", "Camera up vector.").Opt("lens", "MM", "35mm-equivalent lens length for a perspective view (default 50 when switching from parallel).").Flag("parallel", "Parallel (orthographic) projection.")
               .Flag("grid", "Draw the construction grid.").Flag("axes", "Draw the world axes.")
               .Opt("display", "MODE", "A display mode, e.g. Shaded, Wireframe, Rendered, Ghosted, Arctic.")
-              .Opt("size", "WxH", "Pixels, default 1000x700.").Opt("zoom", "ID,ID...|selected", "Frame these objects (comma-separated ids) or the selection first.")
+              .Opt("size", "WxH", "Pixels, default 1000x700.").Opt("zoom", "ID|NAME,...|selected", "Frame these objects (comma-separated ids, id prefixes or exact names) or the selection first.")
               .Example("shot --view top --display Wireframe")
               .Example("shot --view iso --zoom 3fa85f64,9b1c0d22")
               .Example("shot --camera 80,-60,40 --target 0,0,0 --lens 85"));
@@ -758,7 +782,7 @@ namespace RhinoCC.Cli
                 {
                     var vp = v.ActiveViewport;
                     var lens = vp.IsPerspectiveProjection ? $"perspective {Fmt.N(vp.Camera35mmLensLength)}mm" : "parallel";
-                    return $"{vp.Name}{(v == doc.Views.ActiveView ? " *" : "")}  {vp.DisplayMode.EnglishName}  {lens}  camera {Fmt.P(vp.CameraLocation)} -> {Fmt.P(vp.CameraTarget)}  up {Fmt.P(vp.CameraUp)}  size {v.ClientRectangle.Width}x{v.ClientRectangle.Height}";
+                    return $"{vp.Name}{(v == doc.Views.ActiveView ? " *" : "")}  {vp.DisplayMode?.EnglishName ?? "?"}  {lens}  camera {Fmt.P(vp.CameraLocation)} -> {Fmt.P(vp.CameraTarget)}  up {Fmt.P(vp.CameraUp)}  size {v.ClientRectangle.Width}x{v.ClientRectangle.Height}";
                 })) + "\n(* = active)");
             }));
 
@@ -771,10 +795,10 @@ namespace RhinoCC.Cli
                 {
                     var ids = a.Positional.Count == 1 && a.Positional[0] == "selected"
                         ? doc.Objects.GetSelectedObjects(false, false).Select(o => o.Id).ToList()
-                        : Fmt.Ids(doc, a.Positional);
+                        : ZoomTargets(doc, string.Join(",", a.Positional));
                     if (ids.Count == 0) throw new CliException("nothing is selected");
                     var box = BoundingBox.Empty;
-                    foreach (var id in ids) box.Union(doc.Objects.FindId(id).Geometry.GetBoundingBox(true));
+                    foreach (var id in ids) { var o = doc.Objects.FindId(id); if (o != null) box.Union(o.Geometry.GetBoundingBox(true)); }
                     view.ActiveViewport.ZoomBoundingBox(box);
                 }
                 view.Redraw();

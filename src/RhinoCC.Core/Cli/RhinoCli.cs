@@ -77,8 +77,18 @@ namespace RhinoCC.Core.Cli
             }
             catch (Exception e)
             {
-                return CliResult.Fail($"error: {name} failed: {e.Message}");
+                return CliResult.Fail($"error: {name} failed: {Describe(e)}");
             }
+        }
+
+        /// <summary>The message, and for a null reference or a similar bug of ours, where it happened (the agent can pass that on).</summary>
+        internal static string Describe(Exception e)
+        {
+            var inner = e.InnerException ?? e; // the UI-thread hop wraps the original
+            if (!(inner is NullReferenceException || inner is InvalidCastException || inner is ArgumentException || inner is IndexOutOfRangeException || inner is InvalidOperationException))
+                return e.Message;
+            var frame = (inner.StackTrace ?? "").Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.StartsWith("at ", StringComparison.Ordinal)) ?? "";
+            return $"{inner.GetType().Name}: {inner.Message} {frame}".Trim();
         }
 
         private static CliArgs Parse(CommandSpec spec, List<string> tokens)
