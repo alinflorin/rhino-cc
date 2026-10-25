@@ -17,6 +17,9 @@ namespace RhinoCC
 
         protected override LoadReturnCode OnLoad(ref string errorMessage)
         {
+#if DEBUG
+            RhinoCC.Core.Log.Sink = m => Rhino.RhinoApp.InvokeOnUiThread(new System.Action(() => Rhino.RhinoApp.WriteLine(m)));
+#endif
             using (var bmp = new System.Drawing.Bitmap(32, 32))
             {
                 using (var g = System.Drawing.Graphics.FromImage(bmp))

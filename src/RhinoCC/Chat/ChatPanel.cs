@@ -24,6 +24,7 @@ namespace RhinoCC.Chat
         private readonly ImageView _picture = new ImageView { Visible = false, Height = 220 };
         private readonly TextArea _input = new TextArea { Wrap = true, Height = 70 };
         private readonly Button _send = new Button { Text = "Send" };
+        private readonly ProgressBar _busy = new ProgressBar { Indeterminate = true, Visible = false, Height = 6 };
         private readonly Label _status = new Label { TextColor = Colors.Gray };
         private readonly Label _attached = new Label { TextColor = Colors.Gray, VerticalAlignment = VerticalAlignment.Center };
         private readonly Button _clear = new Button { Text = "Clear", Visible = false };
@@ -66,7 +67,7 @@ namespace RhinoCC.Chat
             _send.Click += (s, e) => SendOrStop();
             _input.KeyDown += (s, e) =>
             {
-                if (e.Key == Keys.Enter && e.Control)
+                if (e.Key == Keys.Enter && e.Modifiers == Keys.None)
                 {
                     e.Handled = true;
                     SendOrStop();
@@ -94,6 +95,7 @@ namespace RhinoCC.Chat
                         new Label { Text = "Model", VerticalAlignment = VerticalAlignment.Center }, new TableCell(_model, true),
                         new Label { Text = "Effort", VerticalAlignment = VerticalAlignment.Center }, _effort)) { Spacing = new Size(4, 0) }),
                     new TableRow(_transcript) { ScaleHeight = true },
+                    new TableRow(_busy),
                     new TableRow(_picture),
                     new TableRow(_input),
                     new TableRow(new TableLayout(new TableRow(attachButton, new TableCell(_attached, true), _clear)) { Spacing = new Size(4, 0) }),
@@ -102,7 +104,15 @@ namespace RhinoCC.Chat
             };
 
             _chat.Changed += OnChanged;
-            _timer.Elapsed += (s, e) => { if (_dirty) Refresh(); };
+            _timer.Elapsed += (s, e) =>
+            {
+                try
+                {
+                    if (_dirty) Refresh();
+                    else if (_chat.Running) ShowStatus();
+                }
+                catch (Exception ex) { _status.Text = "Panel error: " + ex.Message; _status.TextColor = Colors.OrangeRed; }
+            };
             Load += (s, e) => { _chat.Sync(); _timer.Start(); _dirty = true; };
             UnLoad += (s, e) => { _timer.Stop(); _chat.Changed -= OnChanged; };
             Rhino.RhinoDoc.EndOpenDocument += OnDocChanged;
@@ -219,6 +229,18 @@ namespace RhinoCC.Chat
             _model.Text = model;
         }
 
+        private void ShowStatus()
+        {
+            _busy.Visible = _chat.Running;
+            if (_chat.Running)
+            {
+                var secs = (int)(DateTime.UtcNow - _chat.RunStarted).TotalSeconds;
+                _status.Text = $"{Engines.Get(_chat.Current.Agent).Label} is working… {secs} s  (Stop to cancel)";
+            }
+            else _status.Text = _chat.Notice ?? "Enter to send, Shift+Enter for a new line";
+            _status.TextColor = _chat.Notice != null ? Colors.OrangeRed : Colors.Gray;
+        }
+
         private void Refresh()
         {
             _dirty = false;
@@ -260,8 +282,7 @@ namespace RhinoCC.Chat
                     try { _transcript.Selection = new Range<int>(text.Length, text.Length - 1); } catch { /* scrolling is a nicety */ }
                 }
                 _send.Text = _chat.Running ? "Stop" : "Send";
-                _status.Text = _chat.Notice ?? (_chat.Running ? "Working…  (the agent drives Rhino through the `rhino` command line)" : "Ctrl+Enter to send");
-                _status.TextColor = _chat.Notice != null ? Colors.OrangeRed : Colors.Gray;
+                ShowStatus();
 
                 if (_shownImage != _chat.LatestImage)
                 {

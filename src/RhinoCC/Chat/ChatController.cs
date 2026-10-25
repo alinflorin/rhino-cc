@@ -30,6 +30,7 @@ namespace RhinoCC.Chat
         public Conversation Current { get; private set; }
         public List<ConversationInfo> Conversations { get; private set; } = new List<ConversationInfo>();
         public bool Running { get; private set; }
+        public DateTime RunStarted { get; private set; }
         /// <summary>The last picture a tool returned (base64 PNG), shown under the transcript.</summary>
         public string LatestImage { get; private set; }
         public string Notice { get; private set; }
@@ -169,9 +170,34 @@ namespace RhinoCC.Chat
             if (Running || (text.Length == 0 && images.Count == 0) || Current == null) return;
             if (text.Length == 0) text = "(see the attached picture" + (images.Count > 1 ? "s" : "") + ")";
             Notice = null;
+            RhinoCC.Core.Log.Write($"send ({Current.Agent}, model {Current.Model ?? "default"}, effort {Current.Effort ?? "default"}): {text}");
+            try { SendCore(text, images); }
+            catch (Exception e)
+            {
+                RhinoCC.Core.Log.Write("send failed: " + e);
+                // anything unexpected belongs in the chat, not in the log
+                if (_live == null) Reject(text, images, "Could not send: " + e.Message);
+                else OnEvent(AgentEvent.Of(AgentEventKind.Failed, "Could not send: " + e.Message));
+            }
+        }
+
+        /// <summary>Shows the user's message with the reason it was not sent, in the conversation itself.</summary>
+        private void Reject(string text, IList<ImageAttachment> images, string reason)
+        {
+            var user = Current.AddUser(text);
+            Current.AddImages(user, images);
+            RhinoCC.Core.Log.Write("rejected: " + reason);
+            Current.AddAssistant().Failure = reason;
+            Notice = null;
+            Save();
+            Changed?.Invoke();
+        }
+
+        private void SendCore(string text, IList<ImageAttachment> images)
+        {
             if (!EnsureServer())
             {
-                Changed?.Invoke();
+                Reject(text, images, Notice);
                 return;
             }
 
@@ -180,6 +206,7 @@ namespace RhinoCC.Chat
             if (Current.SessionAgent != Current.Agent) Current.SessionId = null;
             var prompt = Current.SessionId == null && Current.Messages.Count > 0 ? Primer(Current) + text : text;
 
+            RhinoCC.Core.Log.Write($"server: {_server.Url(true)}");
             ExchangeDirs(out var local, out var host);
             try
             {
@@ -202,8 +229,7 @@ namespace RhinoCC.Chat
             };
             if (turn.Instructions.Length > engine.InstructionLimit)
             {
-                Notice = $"The instructions are {turn.Instructions.Length} characters; {engine.Label} takes at most {engine.InstructionLimit}. Shorten your custom instructions in the settings.";
-                Changed?.Invoke();
+                Reject(text, images, $"The instructions are {turn.Instructions.Length} characters; {engine.Label} takes at most {engine.InstructionLimit}. Shorten your custom instructions in the settings.");
                 return;
             }
 
@@ -212,6 +238,7 @@ namespace RhinoCC.Chat
             Current.AddImages(userMessage, images);
             _liveMessage = Current.AddAssistant();
             Running = true;
+            RunStarted = DateTime.UtcNow;
             Save();
 
             Invocation invocation;
@@ -236,6 +263,7 @@ namespace RhinoCC.Chat
         private void OnEvent(AgentEvent e)
         {
             if (_live == null) return;
+            if (e.Kind == AgentEventKind.Failed || e.Kind == AgentEventKind.Warn) RhinoCC.Core.Log.Write($"{e.Kind}: {e.Text}");
             MessageBuilder.Apply(_live, _liveMessage, e);
             if (e.Kind == AgentEventKind.ToolEnd && e.Parts != null)
             {

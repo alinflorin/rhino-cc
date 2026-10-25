@@ -251,7 +251,9 @@ namespace RhinoCC.Core.Mcp
                     return TextResult("You have not read the instructions yet. Call read_instructions now and read the whole result, then run this command again; nothing was done.", true);
                 var line = (string)args?["args"];
                 if (string.IsNullOrWhiteSpace(line)) return TextResult("error: `args` is empty. Run `help`.", true);
+                Log.Write("mcp exec_rhino: " + line);
                 var r = _cli.Execute(line);
+                Log.Write($"mcp result{(r.IsError ? " (error)" : "")}: {(r.Text.Length > 300 ? r.Text.Substring(0, 300) + "…" : r.Text)}");
                 var res = TextResult(r.Text.Length == 0 ? "(done)" : r.Text, r.IsError);
                 foreach (var img in r.Images)
                     ((JArray)res["content"]).Add(new JObject { ["type"] = "image", ["data"] = img.Base64, ["mimeType"] = img.Mime });

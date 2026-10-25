@@ -23,6 +23,8 @@ namespace RhinoCC.Core.Agents
             _stdin = invocation.Stdin ?? "";
         }
 
+        private static string Trim(string s) => s != null && s.Length > 600 ? s.Substring(0, 600) + $"… ({s.Length} chars)" : s;
+
         public Task Start() => Task.Run(Run);
 
         public void Cancel()
@@ -47,11 +49,18 @@ namespace RhinoCC.Core.Agents
             var stderr = new StringBuilder();
             try
             {
+                Log.Write($"start: {_psi.FileName} {Trim(_psi.Arguments)}");
                 _process = new Process { StartInfo = _psi };
-                _process.ErrorDataReceived += (s, e) => { if (e.Data != null) lock (stderr) stderr.AppendLine(e.Data); };
+                _process.ErrorDataReceived += (s, e) =>
+                {
+                    if (e.Data == null) return;
+                    Log.Write("stderr: " + Trim(e.Data));
+                    lock (stderr) stderr.AppendLine(e.Data);
+                };
                 try { _process.Start(); }
                 catch (Exception ex)
                 {
+                    Log.Write("could not start: " + ex);
                     Raise(AgentEvent.Of(AgentEventKind.Failed, $"Could not start {_engine.Program}: {ex.Message}. Set its path in the RhinoCC settings."));
                     return;
                 }
@@ -66,9 +75,11 @@ namespace RhinoCC.Core.Agents
                 string line;
                 while ((line = _process.StandardOutput.ReadLine()) != null)
                 {
+                    Log.Write("stdout: " + Trim(line));
                     foreach (var e in _engine.Parse(line)) Raise(e);
                 }
                 _process.WaitForExit();
+                Log.Write($"exited with code {_process.ExitCode}");
 
                 if (_cancelled) Raise(AgentEvent.Of(AgentEventKind.Failed, "Stopped."));
                 else if (!finished)
@@ -81,6 +92,7 @@ namespace RhinoCC.Core.Agents
             }
             catch (Exception ex)
             {
+                Log.Write("run failed: " + ex);
                 Raise(AgentEvent.Of(AgentEventKind.Failed, ex.Message));
             }
             finally
