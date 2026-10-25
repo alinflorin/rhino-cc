@@ -44,6 +44,14 @@ namespace RhinoCC.Cli
             }
         }
 
+        public static BoundingBox Region(string text, string what)
+        {
+            var parts = text.Split(',');
+            if (parts.Length != 6) throw new CliException($"{what}: '{text}' is not a region (x0,y0,z0,x1,y1,z1)");
+            var n = parts.Select(x => CliArgs.Number(x, what)).ToArray();
+            return new BoundingBox(Math.Min(n[0], n[3]), Math.Min(n[1], n[4]), Math.Min(n[2], n[5]), Math.Max(n[0], n[3]), Math.Max(n[1], n[4]), Math.Max(n[2], n[5]));
+        }
+
         public static string Box(BoundingBox b) => b.IsValid ? $"[{P(b.Min)} .. {P(b.Max)}]" : "[none]";
 
         /// <summary>Full ids, or a unique prefix of one; ids are 36 characters and agents should not have to repeat them.</summary>
