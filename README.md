@@ -5,7 +5,7 @@ Works with Rhino 7 and Rhino 8 from one codebase. See [CLAUDE.md](CLAUDE.md) for
 
 ## Build
 
-    ./build.sh        # tests + Rhino 8 (.NET Core) build
+    ./build.sh        # Rhino 8 (.NET Core) build
     ./build.sh all    # also Rhino 7 (net48)
 
 Needs the .NET SDK; no Windows tooling required. The agent CLIs (`claude`, `codex`) must be installed and signed in.

@@ -35,13 +35,13 @@ Owner: Alin-Florin Ciu. Don't commit or push unless asked.
 | `src/RhinoCC.Core` | `netstandard2.0`, **no RhinoCommon**. Fake CLI (`Cli/`), MCP server (`Mcp/`), engines + process launching (`Agents/`), conversation model/store/renderer (`Conversations/`). |
 | `src/RhinoCC` | The plugin: `net48` (Rhino 7) + `net7.0-windows` (Rhino 8). `Cli/RhinoCommands.cs` = the commands that work on both; `Chat/` is the Eto panel, controller, settings; `Commands/` the Rhino commands `RhinoCCChat`, `RhinoCCSettings`. |
 | `src/RhinoCC.Tests` | xunit on `net10.0`; tests Core only (Rhino can't run in CI). |
-| `build.sh` | Tests + build. `./build.sh all` also builds `net48`. |
+| `build.sh` | Build only (tests: `dotnet test src/RhinoCC.Tests`). `./build.sh all` also builds `net48`. |
 
 Rule of thumb: logic that doesn't need Rhino goes in Core and gets a test. Only RhinoCommon-touching code lives in the plugin project.
 
 ## Build, test
 
-    ./build.sh                    # tests + net7.0-windows build
+    ./build.sh                    # net7.0-windows build
     ./build.sh all                # + net48
     dotnet test src/RhinoCC.Tests # 33 tests, none need Rhino or network
     RHINOCC_LIVE=claude dotnet test src/RhinoCC.Tests --filter Live   # runs the real claude CLI against a fake Rhino (uses your account); RHINOCC_LIVE=codex likewise
@@ -88,7 +88,7 @@ The owner chose parity over features: remove stability and everything else that 
 
 ## CI and releases
 
-- `.github/workflows/ci.yml`: PRs, pushes to main and manual runs build + test (`CONFIG=Release ./build.sh all`) on ubuntu.
+- `.github/workflows/ci.yml`: PRs, pushes to main and manual runs restore (locked), test, and build both targets on ubuntu.
 - `.github/workflows/release.yml`: a `v*` tag builds with `-p:Version` from the tag and publishes `RhinoCC-<v>-rhino7.zip` (net48) and `-rhino8.zip` (net7.0-windows) to a GitHub Release. Manual run only uploads the zips as an artifact. Users install by hand (Unblock, extract, PlugInManager > Install). Not run on GitHub yet.
 
 ## Conventions
