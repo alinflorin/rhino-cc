@@ -62,12 +62,6 @@ namespace RhinoCC.Cli
                 return CliResult.Ok("saved " + doc.Path);
             }));
 
-            cli.Register(new CommandSpec("chime", "Document", "chime", "Plays a short chime for a user who may be looking elsewhere. Use it once when you finish a long piece of work, or when you need an answer. A long reply already ends with one by itself, so a chime just before it does not play twice. It does nothing if the user turned the sound off; do not ask them to turn it on.", a =>
-            {
-                if (a.Positional.Count > 0) throw new CliException("chime takes no arguments");
-                return CliResult.Ok(RhinoCC.Chat.ChatController.Instance.ChimeNow() ? "played the chime" : "the user turned the sound off; nothing played");
-            }));
-
             cli.Register(new CommandSpec("undo", "Document", "undo [N]", "Undoes the last N (default 1) Rhino operations.", a =>
             {
                 var n = a.Positional.Count > 0 ? (int)a.PosNumber(0, "N") : 1;

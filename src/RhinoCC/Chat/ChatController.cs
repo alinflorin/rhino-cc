@@ -27,7 +27,6 @@ namespace RhinoCC.Chat
         private ChatMessage _liveMessage;
         private AgentRun _run;
         private bool _compactTurn;
-        private DateTime _lastChime = DateTime.MinValue;
 
         /// <summary>A conversation compacts itself once the agent's memory is this full (0 to 1).</summary>
         public const double AutoCompactAt = 0.8;
@@ -409,22 +408,12 @@ namespace RhinoCC.Chat
 
         // ------------------------------------------------------------ chime
 
-        /// <summary>A reply that took a while ends with a chime, unless the agent already asked for one.</summary>
+        /// <summary>A reply that took a while ends with a chime. Not an agent tool: the plugin decides.</summary>
         private void MaybeChime()
         {
-            if (!AppSettings.ChimeOn || _lastChime >= RunStarted) return;
+            if (!AppSettings.ChimeOn) return;
             if ((DateTime.UtcNow - RunStarted).TotalSeconds < AppSettings.ChimeSecs) return;
             Chime.Play();
-            _lastChime = DateTime.UtcNow;
-        }
-
-        /// <summary>The agent's own `chime` command; returns false when the sound is off.</summary>
-        public bool ChimeNow()
-        {
-            if (!AppSettings.ChimeOn) return false;
-            Chime.Play();
-            _lastChime = DateTime.UtcNow;
-            return true;
         }
 
         /// <summary>When a conversation moves to another agent, it starts without memory; give it what was said.</summary>

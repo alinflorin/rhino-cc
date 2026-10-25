@@ -32,7 +32,7 @@ Owner: Alin-Florin Ciu. Don't commit or push unless asked.
 
 - **Usage bars** (context, 5h, weekly) come from the agents: Claude's `rate_limit_event` / `assistant.usage` / `result.modelUsage`; Codex's `token_count` in its session record under `$CODEX_HOME` or `~/.codex/sessions` (read after the turn by `AfterTurn`; under Wine through `Z:` + `$HOME`). Plan limits are kept in the settings per agent; the context size is stored in the conversation.
 - **Compact** (menu "Conversation ▾", or by itself at 80% with Auto-compact on): a hidden turn asks the agent for notes, they become `Conversation.Summary`, the session is dropped and a "conversation compacted" note is added; the next turn starts with the notes (`Primer`).
-- **Chime**: two synthesised notes (`Chat/Chime.cs`, `SoundPlayer`) after a reply that took `ChimeSecs` or more; the fake CLI has `chime` so the agent can ring earlier (then the automatic one is skipped). Both in settings and the conversation menu.
+- **Chime**: two synthesised notes (`Chat/Chime.cs`, `SoundPlayer`) after a reply that took `ChimeSecs` or more; automatic only, the agent has no tool for it. Both in settings and the conversation menu.
 
 ## Self-update
 
