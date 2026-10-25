@@ -1,7 +1,16 @@
 using System.Collections.Generic;
+using System.IO;
 
 namespace RhinoCC.Core.Agents
 {
+    /// <summary>A picture sent along with the user's message.</summary>
+    public sealed class ImageAttachment
+    {
+        public string Name { get; set; }
+        public string Mime { get; set; }
+        public string Base64 { get; set; }
+    }
+
     public enum AgentEventKind { Session, Delta, Thought, Break, ToolStart, ToolEnd, Warn, Failed, Done }
 
     public sealed class ToolPart
@@ -44,6 +53,23 @@ namespace RhinoCC.Core.Agents
         public string Instructions { get; set; }
         /// <summary>Let the agent use its own tools (shell, files, web) next to ours.</summary>
         public bool AllTools { get; set; }
+        public List<ImageAttachment> Images { get; set; } = new List<ImageAttachment>();
+        /// <summary>
+        /// A folder both the plugin and the CLI can reach, for what is too big for a command line or has to be a file.
+        /// Local is how the plugin names it, Host how the CLI does (they differ under Wine: Z:\tmp\x and /tmp/x).
+        /// </summary>
+        public string ExchangeLocalDir { get; set; }
+        public string ExchangeHostDir { get; set; }
+
+        /// <summary>Writes a file into the exchange folder and returns its path as the CLI sees it; null when there is no folder.</summary>
+        public string WriteExchange(string name, byte[] data)
+        {
+            if (string.IsNullOrEmpty(ExchangeLocalDir) || string.IsNullOrEmpty(ExchangeHostDir)) return null;
+            Directory.CreateDirectory(ExchangeLocalDir);
+            File.WriteAllBytes(Path.Combine(ExchangeLocalDir, name), data);
+            var sep = ExchangeHostDir.Contains("/") ? "/" : "\\";
+            return ExchangeHostDir.TrimEnd('/', '\\') + sep + name;
+        }
     }
 
     /// <summary>A command line to run, before it is adapted to where the plugin runs.</summary>
@@ -62,6 +88,8 @@ namespace RhinoCC.Core.Agents
         string Program { get; }
         IReadOnlyList<ModelInfo> Models { get; }
         IReadOnlyList<string> Efforts { get; }
+        /// <summary>The most instruction text the engine can take on its command line.</summary>
+        int InstructionLimit { get; }
         Invocation Prepare(Turn turn);
         /// <summary>Reads one line of the agent's output.</summary>
         IReadOnlyList<AgentEvent> Parse(string line);

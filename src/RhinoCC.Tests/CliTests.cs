@@ -123,5 +123,14 @@ namespace RhinoCC.Tests
             Assert.Contains("fail", Make().Execute("help").Text);
             Assert.Contains("Prints words.", Make().Execute("help echo").Text);
         }
+
+        [Fact]
+        public void CompactReferenceIsOneLinePerCommand()
+        {
+            var compact = Make().Reference(false);
+            Assert.Contains("echo WORDS... [--up]  — Prints words.", compact);
+            Assert.DoesNotContain("--by N  Offset.", compact);
+            Assert.Contains("`help COMMAND` shows every option", compact);
+        }
     }
 }

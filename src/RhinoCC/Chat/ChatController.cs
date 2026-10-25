@@ -18,9 +18,6 @@ namespace RhinoCC.Chat
     /// </summary>
     internal sealed class ChatController
     {
-        // Windows allows 32K characters on a command line, and the instructions travel on it.
-        private const int MaxInstructions = 28000;
-
         public static ChatController Instance { get; } = new ChatController();
 
         private readonly RhinoCli _cli;
@@ -53,7 +50,7 @@ namespace RhinoCC.Chat
             var sb = new StringBuilder();
             var custom = AppSettings.Instructions.Trim();
             if (custom.Length > 0) sb.Append(custom).Append("\n\n");
-            sb.Append(_cli.Reference());
+            sb.Append(_cli.Reference(false)); // one line per command; `help COMMAND` has the options, and keeps the prompt short
             return sb.ToString();
         }
 
@@ -145,11 +142,27 @@ namespace RhinoCC.Chat
 
         // ------------------------------------------------------------ turns
 
-        public void Send(string text)
+        /// <summary>Where files for the CLI go: how the plugin names the folder, and how the CLI does (they differ under Wine).</summary>
+        private static void ExchangeDirs(out string local, out string host)
+        {
+            if (ProcessHost.IsWine)
+            {
+                host = "/tmp/rhinocc";
+                local = ProcessHost.ToWinePath(host);
+            }
+            else
+            {
+                local = host = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "rhinocc");
+            }
+        }
+
+        public void Send(string text, IList<ImageAttachment> images = null)
         {
             text = (text ?? "").Trim();
+            images = images ?? new List<ImageAttachment>();
             Sync();
-            if (Running || text.Length == 0 || Current == null) return;
+            if (Running || (text.Length == 0 && images.Count == 0) || Current == null) return;
+            if (text.Length == 0) text = "(see the attached picture" + (images.Count > 1 ? "s" : "") + ")";
             Notice = null;
             if (!EnsureServer())
             {
@@ -162,8 +175,18 @@ namespace RhinoCC.Chat
             if (Current.SessionAgent != Current.Agent) Current.SessionId = null;
             var prompt = Current.SessionId == null && Current.Messages.Count > 0 ? Primer(Current) + text : text;
 
+            ExchangeDirs(out var local, out var host);
+            try
+            {
+                foreach (var f in System.IO.Directory.GetFiles(local, "image-*")) System.IO.File.Delete(f);
+            }
+            catch { /* the folder may not exist yet */ }
+
             var turn = new Turn
             {
+                Images = images.ToList(),
+                ExchangeLocalDir = local,
+                ExchangeHostDir = host,
                 Prompt = prompt,
                 Model = Current.Model,
                 Effort = Current.Effort,
@@ -172,20 +195,31 @@ namespace RhinoCC.Chat
                 Instructions = BuildInstructions(),
                 AllTools = AppSettings.AllTools,
             };
-            if (turn.Instructions.Length > MaxInstructions)
+            if (turn.Instructions.Length > engine.InstructionLimit)
             {
-                Notice = $"The instructions are {turn.Instructions.Length} characters; the limit is {MaxInstructions}. Shorten your custom instructions in the settings.";
+                Notice = $"The instructions are {turn.Instructions.Length} characters; {engine.Label} takes at most {engine.InstructionLimit}. Shorten your custom instructions in the settings.";
                 Changed?.Invoke();
                 return;
             }
 
             _live = Current;
-            Current.AddUser(text);
+            var userMessage = Current.AddUser(text);
+            Current.AddImages(userMessage, images);
             _liveMessage = Current.AddAssistant();
             Running = true;
             Save();
 
-            var invocation = engine.Prepare(turn);
+            Invocation invocation;
+            try
+            {
+                invocation = engine.Prepare(turn);
+            }
+            catch (Exception e)
+            {
+                // e.g. the folder for the instructions or pictures could not be written
+                OnEvent(AgentEvent.Of(AgentEventKind.Failed, "Could not prepare the request: " + e.Message));
+                return;
+            }
             _run = new AgentRun(engine, invocation, AppSettings.ForAgents());
             _run.Event += e => Application.Instance.AsyncInvoke(() => OnEvent(e));
             _run.Start();

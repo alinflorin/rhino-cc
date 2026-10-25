@@ -1,4 +1,7 @@
+using System;
+using System.IO;
 using System.Linq;
+using Newtonsoft.Json.Linq;
 using RhinoCC.Core.Agents;
 using RhinoCC.Core.Conversations;
 using Xunit;
@@ -52,6 +55,83 @@ namespace RhinoCC.Tests
             Assert.Contains("\"url\":\"http://127.0.0.1:1/mcp/embedded\"", cfg);
             Assert.Contains("--permission-mode auto", string.Join(" ", Claude.Prepare(new Turn { McpUrl = "u", AllTools = true }).Args));
             Assert.DoesNotContain("--resume", string.Join(" ", Claude.Prepare(new Turn { McpUrl = "u" }).Args));
+        }
+    }
+
+    public class ProbeTests
+    {
+        [Fact]
+        public void FindsAProgramThatExists()
+        {
+            // `dotnet --version` is what the test run itself uses
+            var r = ProcessHost.Probe("claude", new AgentSettings { ClaudePath = "dotnet" });
+            Assert.True(r.Key, r.Value);
+            Assert.Matches(@"^\d+\.\d+", r.Value);
+        }
+
+        [Fact]
+        public void ReportsAProgramThatIsMissing()
+        {
+            var r = ProcessHost.Probe("codex", new AgentSettings { CodexPath = "/definitely/not/here" });
+            Assert.False(r.Key);
+            Assert.NotEmpty(r.Value);
+        }
+    }
+
+    public class AttachmentTests
+    {
+        private static string TempDir() => Path.Combine(Path.GetTempPath(), "rhinocc-test-" + Guid.NewGuid().ToString("N"));
+
+        [Fact]
+        public void ClaudeGetsPicturesAsStructuredInput()
+        {
+            var inv = new ClaudeEngine().Prepare(new Turn
+            {
+                Prompt = "what is this",
+                McpUrl = "u",
+                Images = { new ImageAttachment { Name = "a.png", Mime = "image/png", Base64 = "AAAA" } },
+            });
+            Assert.Contains("--input-format stream-json", string.Join(" ", inv.Args));
+            var line = JObject.Parse(inv.Stdin.Trim());
+            Assert.Equal("image", (string)line["message"]["content"][0]["type"]);
+            Assert.Equal("AAAA", (string)line["message"]["content"][0]["source"]["data"]);
+            Assert.Equal("what is this", (string)line["message"]["content"][1]["text"]);
+            Assert.EndsWith("\n", inv.Stdin);
+        }
+
+        [Fact]
+        public void CodexGetsPicturesAsFiles()
+        {
+            var dir = TempDir();
+            try
+            {
+                var inv = new CodexEngine().Prepare(new Turn
+                {
+                    Prompt = "look",
+                    McpUrl = "u",
+                    ExchangeLocalDir = dir,
+                    ExchangeHostDir = "/tmp/x",
+                    Images = { new ImageAttachment { Name = "a.png", Mime = "image/png", Base64 = Convert.ToBase64String(new byte[] { 1, 2, 3 }) } },
+                });
+                var i = inv.Args.IndexOf("-i");
+                Assert.Equal("/tmp/x/image-0.png", inv.Args[i + 1]);
+                Assert.Equal("-", inv.Args.Last());
+                Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(Path.Combine(dir, "image-0.png")));
+            }
+            finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void PicturesShowInTheTranscriptAndAreNotSaved()
+        {
+            var c = new Conversation();
+            var m = c.AddUser("look");
+            c.AddImages(m, new[] { new ImageAttachment { Name = "ring.png", Mime = "image/png", Base64 = "HUGE" } });
+            Assert.Contains("[picture: ring.png]", TranscriptRenderer.Render(c, "Claude", false));
+            var mem = new System.Collections.Generic.Dictionary<string, string>();
+            var store = new ConversationStore(new ConversationTests.Memory(mem));
+            store.Save(c);
+            Assert.DoesNotContain("HUGE", string.Concat(mem.Values));
         }
     }
 
@@ -124,9 +204,11 @@ namespace RhinoCC.Tests
 
     public class ConversationTests
     {
-        private sealed class Memory : IKeyValueStore
+        internal sealed class Memory : IKeyValueStore
         {
-            public readonly System.Collections.Generic.Dictionary<string, string> Data = new System.Collections.Generic.Dictionary<string, string>();
+            public Memory() { Data = new System.Collections.Generic.Dictionary<string, string>(); }
+            public Memory(System.Collections.Generic.Dictionary<string, string> data) { Data = data; }
+            public readonly System.Collections.Generic.Dictionary<string, string> Data;
             public string Get(string key) => Data.TryGetValue(key, out var v) ? v : null;
             public void Set(string key, string value) => Data[key] = value;
             public void Delete(string key) => Data.Remove(key);

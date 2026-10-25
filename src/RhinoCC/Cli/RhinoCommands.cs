@@ -202,7 +202,7 @@ namespace RhinoCC.Cli
                 return CliResult.Ok(sb.ToString().TrimEnd());
             }));
 
-            cli.Register(new CommandSpec("add", "Objects", "add KIND ARGS... [--at X,Y,Z] [--name N] [--layer L] [--color R,G,B]", "Adds geometry and prints its id. Solids are centred on --at (default the origin).", a =>
+            cli.Register(new CommandSpec("add", "Objects", "add KIND ARGS... [--at X,Y,Z] [--name N] [--layer L] [--color R,G,B]", "Adds geometry and prints its id. KIND: point, line, polyline, curve, circle, arc, ellipse, box, sphere, cylinder, cone. Solids are centred on --at (default the origin).", a =>
             {
                 var doc = Doc();
                 var kind = a.Pos(0, "KIND").ToLowerInvariant();
@@ -228,6 +228,19 @@ namespace RhinoCC.Cli
                     case "circle":
                         id = doc.Objects.AddCircle(new Circle(new Plane(at, dir), a.PosNumber(1, "RADIUS")), attrs);
                         break;
+                    case "arc":
+                        id = doc.Objects.AddArc(new Arc(new Plane(at, dir), a.PosNumber(1, "RADIUS"), RhinoMath.ToRadians(a.PosNumber(2, "ANGLE(deg)"))), attrs);
+                        break;
+                    case "ellipse":
+                        id = doc.Objects.AddEllipse(new Ellipse(new Plane(at, dir), a.PosNumber(1, "RADIUS-X"), a.PosNumber(2, "RADIUS-Y")), attrs);
+                        break;
+                    case "curve":
+                        {
+                            var through = a.Positional.Skip(1).Select(t => Fmt.Point(t, "POINT")).ToList();
+                            var curve = Curve.CreateControlPointCurve(through, (int)(a.OptNumber("degree") ?? 3)) ?? throw new CliException("cannot make a curve from those points (it needs more points than the degree)");
+                            id = doc.Objects.AddCurve(curve, attrs);
+                            break;
+                        }
                     case "box":
                         {
                             var w = a.PosNumber(1, "WIDTH(x)"); var l = a.PosNumber(2, "LENGTH(y)"); var h = a.PosNumber(3, "HEIGHT(z)");
@@ -251,13 +264,13 @@ namespace RhinoCC.Cli
                             break;
                         }
                     default:
-                        throw new CliException($"unknown kind '{kind}' (point, line, polyline, circle, box, sphere, cylinder, cone)");
+                        throw new CliException($"unknown kind '{kind}' (point, line, polyline, curve, circle, arc, ellipse, box, sphere, cylinder, cone)");
                 }
                 if (id == Guid.Empty) throw new CliException("Rhino did not add the object (check the sizes)");
                 doc.Views.Redraw();
                 return CliResult.Ok($"added {kind} {id}");
             }).Opt("at", "X,Y,Z", "Centre / origin.").Opt("axis", "x|y|z", "Axis of circle, cylinder and cone (default z).").Flag("cap", "Cap the ends of a cylinder or cone.")
-              .Flag("close", "Close a polyline.").Opt("name", "N", "Object name.").Opt("layer", "L", "Layer (created if missing).").Opt("color", "R,G,B", "Object colour.")
+              .Flag("close", "Close a polyline.").Opt("degree", "N", "Degree of a curve through control points (default 3).").Opt("name", "N", "Object name.").Opt("layer", "L", "Layer (created if missing).").Opt("color", "R,G,B", "Object colour.")
               .Example("add box 20 10 5 --at 0,0,2.5 --name base")
               .Example("add polyline 0,0 10,0 10,10 --close")
               .Example("add cylinder 3 12 --cap --axis x"));
@@ -290,6 +303,12 @@ namespace RhinoCC.Cli
 
         // ---------------------------------------------------------------- editing
 
+        /// <summary>Transforms (or copies) an object.</summary>
+        private static Guid Xf(RhinoDoc doc, Guid id, Transform x, bool copy)
+        {
+            return doc.Objects.Transform(id, x, !copy);
+        }
+
         private static CommandSpec Edit(string name, string usage, string summary, Func<CliArgs, RhinoDoc, List<Guid>, CliResult> run) =>
             new CommandSpec(name, "Editing", usage, summary, a => run(a, Doc(), Fmt.Ids(Doc(), a.Positional)));
 
@@ -298,7 +317,7 @@ namespace RhinoCC.Cli
             cli.Register(Edit("move", "move ID... --by X,Y,Z", "Moves objects by a vector.", (a, doc, ids) =>
             {
                 var x = Transform.Translation(Fmt.Vector(a.Opt("by") ?? throw new CliException("--by X,Y,Z is required"), "--by"));
-                foreach (var id in ids) doc.Objects.Transform(id, x, true);
+                foreach (var id in ids) Xf(doc, id, x, false);
                 doc.Views.Redraw();
                 return CliResult.Ok($"moved {ids.Count} object(s)");
             }).Opt("by", "X,Y,Z", "The offset."));
@@ -310,7 +329,7 @@ namespace RhinoCC.Cli
                 var dir = axis == "x" ? Vector3d.XAxis : axis == "y" ? Vector3d.YAxis : axis == "z" ? Vector3d.ZAxis : throw new CliException("--axis is x, y or z");
                 var center = a.Has("center") ? Fmt.Point(a.Opt("center"), "--center") : Point3d.Origin;
                 var x = Transform.Rotation(RhinoMath.ToRadians(angle), dir, center);
-                foreach (var id in ids) doc.Objects.Transform(id, x, true);
+                foreach (var id in ids) Xf(doc, id, x, false);
                 doc.Views.Redraw();
                 return CliResult.Ok($"rotated {ids.Count} object(s) by {Fmt.N(angle)}° about {axis}");
             }).Opt("angle", "DEG", "Angle in degrees.").Opt("axis", "x|y|z", "Axis (default z).").Opt("center", "X,Y,Z", "A point on the axis (default the origin)."));
@@ -320,7 +339,7 @@ namespace RhinoCC.Cli
                 var f = a.OptNumber("factor") ?? throw new CliException("--factor F is required");
                 var center = a.Has("center") ? Fmt.Point(a.Opt("center"), "--center") : Point3d.Origin;
                 var x = Transform.Scale(center, f);
-                foreach (var id in ids) doc.Objects.Transform(id, x, true);
+                foreach (var id in ids) Xf(doc, id, x, false);
                 doc.Views.Redraw();
                 return CliResult.Ok($"scaled {ids.Count} object(s) by {Fmt.N(f)}");
             }).Opt("factor", "F", "Scale factor.").Opt("center", "X,Y,Z", "Centre of scaling."));
@@ -328,7 +347,7 @@ namespace RhinoCC.Cli
             cli.Register(Edit("copy", "copy ID... [--by X,Y,Z]", "Copies objects, optionally offset; prints the new ids.", (a, doc, ids) =>
             {
                 var x = a.Has("by") ? Transform.Translation(Fmt.Vector(a.Opt("by"), "--by")) : Transform.Identity;
-                var made = ids.Select(id => doc.Objects.Transform(id, x, false)).Where(g => g != Guid.Empty).ToList();
+                var made = ids.Select(id => Xf(doc, id, x, true)).Where(g => g != Guid.Empty).ToList();
                 doc.Views.Redraw();
                 return CliResult.Ok("copied to " + string.Join(" ", made));
             }).Opt("by", "X,Y,Z", "Offset of the copy."));
@@ -353,12 +372,19 @@ namespace RhinoCC.Cli
                 return CliResult.Ok($"updated {ids.Count} object(s)");
             }).Opt("name", "N", "New name.").Opt("layer", "L", "Layer (created if missing).").Opt("color", "R,G,B", "Object colour."));
 
-            cli.Register(new CommandSpec("select", "Editing", "select ID... | --all | --layer NAME | --none", "Changes the selection (what the user sees highlighted).", a =>
+            cli.Register(new CommandSpec("select", "Editing", "select ID... | --all | --layer NAME | --name NAME | --type TYPE | --none", "Changes the selection (what the user sees highlighted). Filters add up.", a =>
             {
                 var doc = Doc();
                 doc.Objects.UnselectAll();
                 var n = 0;
                 if (a.Has("none")) { }
+                else if (a.Has("name") || a.Has("type"))
+                {
+                    var hits = doc.Objects.Where(o =>
+                        (a.Has("name") && string.Equals(o.Name, a.Opt("name"), StringComparison.OrdinalIgnoreCase)) ||
+                        (a.Has("type") && o.ObjectType.ToString().Equals(a.Opt("type"), StringComparison.OrdinalIgnoreCase))).Select(o => o.Id).ToList();
+                    n = doc.Objects.Select(hits);
+                }
                 else if (a.Has("all")) n = doc.Objects.Select(doc.Objects.Select(o => o.Id).ToList()) ;
                 else if (a.Has("layer"))
                 {
@@ -368,7 +394,8 @@ namespace RhinoCC.Cli
                 else n = doc.Objects.Select(Fmt.Ids(doc, a.Positional));
                 doc.Views.Redraw();
                 return CliResult.Ok($"{n} object(s) selected");
-            }).Flag("all", "Select everything.").Opt("layer", "NAME", "Select a layer's objects.").Flag("none", "Clear the selection."));
+            }).Flag("all", "Select everything.").Opt("layer", "NAME", "Select a layer's objects.").Opt("name", "NAME", "Select objects with this exact name.")
+              .Opt("type", "TYPE", "Select by object type: Brep, Extrusion, Curve, Point, Mesh, ...").Flag("none", "Clear the selection."));
         }
 
         // ---------------------------------------------------------------- viewing

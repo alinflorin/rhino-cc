@@ -18,6 +18,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The default instructions for the agent, kept as a document so they are easy to edit. -->
+    <EmbeddedResource Include="Chat\DefaultInstructions.md" LogicalName="DefaultInstructions.md" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\RhinoCC.Core\RhinoCC.Core.csproj" />
   </ItemGroup>
 
@@ -31,7 +36,7 @@
   </PropertyGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net7.0-windows'">
-    <PackageReference Include="RhinoCommon" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+    <PackageReference Include="RhinoCommon" Version="8.17.25066.7001" ExcludeAssets="runtime" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net48'">

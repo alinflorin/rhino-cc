@@ -10,7 +10,7 @@ namespace RhinoCC.Chat
         public SettingsDialog()
         {
             Title = "RhinoCC settings";
-            MinimumSize = new Size(560, 520);
+            MinimumSize = new Size(580, 600);
             Padding = new Padding(10);
 
             var agent = new DropDown();
@@ -20,6 +20,21 @@ namespace RhinoCC.Chat
             var codex = new TextBox { Text = AppSettings.CodexPath };
             var shell = new TextBox { Text = AppSettings.HostShell, Enabled = ProcessHost.IsWine };
             var port = new NumericStepper { MinValue = 1024, MaxValue = 65535, Value = AppSettings.Port };
+            var openAtStartup = new CheckBox { Text = "Open the chat panel when Rhino starts", Checked = AppSettings.OpenAtStartup };
+            var check = new Button { Text = "Check agents" };
+            var checkResult = new Label { TextColor = Colors.Gray, Text = "" };
+            check.Click += (s, e) =>
+            {
+                checkResult.Text = "Checking…";
+                var settings = new AgentSettings { ClaudePath = claude.Text.Trim(), CodexPath = codex.Text.Trim(), HostShell = shell.Text.Trim() };
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    var c = ProcessHost.Probe("claude", settings);
+                    var x = ProcessHost.Probe("codex", settings);
+                    Application.Instance.AsyncInvoke(() =>
+                        checkResult.Text = $"Claude: {(c.Key ? "found, " : "NOT FOUND, ")}{c.Value}\nCodex: {(x.Key ? "found, " : "NOT FOUND, ")}{x.Value}");
+                });
+            };
             var allTools = new CheckBox { Text = "Also let the agent use its own tools (shell, files, web)", Checked = AppSettings.AllTools };
             var instructions = new TextArea { Text = AppSettings.Instructions, Wrap = true, Height = 170 };
 
@@ -36,6 +51,7 @@ namespace RhinoCC.Chat
                 AppSettings.HostShell = shell.Text.Trim().Length > 0 ? shell.Text.Trim() : "/bin/sh";
                 AppSettings.Port = (int)port.Value;
                 AppSettings.AllTools = allTools.Checked == true;
+                AppSettings.OpenAtStartup = openAtStartup.Checked == true;
                 AppSettings.Instructions = instructions.Text;
                 if (restart) ChatController.Instance.RestartServer();
                 Close();
@@ -56,7 +72,9 @@ namespace RhinoCC.Chat
                     new TableRow(Row("Codex executable", codex)),
                     new TableRow(Row("Host shell (Wine only)", shell)),
                     new TableRow(Row("Agent server port (loopback)", port)),
+                    new TableRow(new TableLayout(new TableRow(check, new TableCell(checkResult, true))) { Spacing = new Size(6, 0) }),
                     new TableRow(allTools),
+                    new TableRow(openAtStartup),
                     new TableRow(new Label { Text = "Your instructions for the agent (sent before the command reference):" }),
                     new TableRow(instructions) { ScaleHeight = true },
                     new TableRow(new TableLayout(new TableRow(reset, new TableCell(null, true), cancel, ok)) { Spacing = new Size(6, 0) }),

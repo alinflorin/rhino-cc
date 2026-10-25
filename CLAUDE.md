@@ -3,7 +3,7 @@
 A Rhino plugin (`RhinoCC.rhp`) that puts an **agent chat inside Rhino** and lets the agent drive Rhino natively.
 Claude Code and Codex are both supported. It is the Rhino counterpart of
 [frederic-coultier](https://github.com/alinflorin/frederic-coultier) (same chat design, same "one fake CLI" idea) and a port of the
-command set of [Tectopus / RhinoMCP](https://github.com/Creative-Data-Critical-Design/tectopus) (Apache-2.0), minus its TCP bridge and its ~45 MCP tools.
+command set of [Tectopus / RhinoMCP](https://github.com/Creative-Data-Critical-Design/tectopus) (Apache-2.0): only the commands that work on both Rhino versions were kept, driven through the fake CLI instead of its TCP bridge and ~45 MCP tools.
 
 Owner: Alin-Florin Ciu. Don't commit or push unless asked.
 
@@ -20,12 +20,20 @@ Owner: Alin-Florin Ciu. Don't commit or push unless asked.
 - Conversations are stored **inside the .3dm** (`doc.Strings`, keys `RhinoCC.index` and `RhinoCC.conversation.<id>`). Picture data is stripped on save so the model file doesn't bloat.
   Moving a conversation to another agent starts that agent without memory, so the first turn is prefixed with a short transcript (`Primer`).
 
+## Chat features
+
+- **Pictures:** `Attach…` button, Ctrl+V (clipboard image) and drag-and-drop of png/jpg/gif/webp (max 5 MB each). Claude gets them as stream-json input (`--input-format stream-json`), Codex as `-i FILE`.
+  Persisted conversations keep only a `[picture: name]` placeholder.
+- **Default instructions** live in `src/RhinoCC/Chat/DefaultInstructions.md` (embedded resource): a jewelry-designer workflow, intake questions, design loop, the Elegoo Mars 5 resin -> casting production flow
+  and design rules, adapted from frederic-coultier's `fc-cli.md` with the OpenSCAD / knowledge-base / supports / FC-specific parts removed. The user can override them in the settings;
+  a stored copy of the old stub default is migrated automatically. The generated command reference is appended after them.
+
 ## Layout
 
 | Path | What |
 |---|---|
 | `src/RhinoCC.Core` | `netstandard2.0`, **no RhinoCommon**. Fake CLI (`Cli/`), MCP server (`Mcp/`), engines + process launching (`Agents/`), conversation model/store/renderer (`Conversations/`). |
-| `src/RhinoCC` | The plugin: `net48` (Rhino 7) + `net7.0-windows` (Rhino 8). `Cli/RhinoCommands.cs` implements the commands; `Chat/` is the Eto panel, controller, settings; `Commands/` the Rhino commands `RhinoCCChat`, `RhinoCCSettings`. |
+| `src/RhinoCC` | The plugin: `net48` (Rhino 7) + `net7.0-windows` (Rhino 8). `Cli/RhinoCommands.cs` = the commands that work on both; `Chat/` is the Eto panel, controller, settings; `Commands/` the Rhino commands `RhinoCCChat`, `RhinoCCSettings`. |
 | `src/RhinoCC.Tests` | xunit on `net10.0`; tests Core only (Rhino can't run in CI). |
 | `build.sh` | Tests + build. `./build.sh all` also builds `net48`. |
 
@@ -35,10 +43,10 @@ Rule of thumb: logic that doesn't need Rhino goes in Core and gets a test. Only 
 
     ./build.sh                    # tests + net7.0-windows build
     ./build.sh all                # + net48
-    dotnet test src/RhinoCC.Tests # 27 tests, none need Rhino or network
+    dotnet test src/RhinoCC.Tests # 33 tests, none need Rhino or network
     RHINOCC_LIVE=claude dotnet test src/RhinoCC.Tests --filter Live   # runs the real claude CLI against a fake Rhino (uses your account); RHINOCC_LIVE=codex likewise
 
-Builds on Linux (`EnableWindowsTargeting`). RhinoCommon versions differ per target on purpose: `net48` -> 7.13, `net7.0-windows` -> 8.0
+Builds on Linux (`EnableWindowsTargeting`). RhinoCommon versions differ per target on purpose: `net48` -> 7.13, `net7.0-windows` -> 8.17
 (RhinoCommon 7 only ships a net48 library). Both reference it with `ExcludeAssets=runtime`; Rhino provides RhinoCommon, Eto and Newtonsoft.Json.
 
 ## Environment: Rhino 8 in Wine on Linux (the owner's setup)
@@ -46,8 +54,11 @@ Builds on Linux (`EnableWindowsTargeting`). RhinoCommon versions differ per targ
 - Load via `PlugInManager` > Install: `Z:\home\alin\rhino-cc\src\RhinoCC\bin\Debug\net7.0-windows\RhinoCC.rhp` (`build.sh` prints it). Close Rhino before rebuilding (the `.rhp` is locked).
 - `claude` and `codex` are installed on the **Linux host**. Under Wine (detected via `ntdll!wine_get_version`, `ProcessHost.IsWine`) the plugin starts
   `Z:\bin\sh -lc 'cd /tmp && exec "$0" "$@"' <program> <args>`, so Wine launches the Unix shell, which gives the CLI the host login PATH.
-  If `claude` isn't on that PATH, set the full path in the settings. Prompts go over stdin; instructions and MCP config go as command-line arguments (no files, so no Wine<->Unix path mapping).
-  Hence the **28,000-character cap on instructions** (Windows command lines hold 32K).
+  If `claude` isn't on that PATH, set the full path in the settings. Prompts go over stdin.
+  Things that can't ride on a command line go through an **exchange folder** (`Turn.ExchangeLocalDir` / `ExchangeHostDir`): `Z:\tmp\rhinocc` as the plugin sees it, `/tmp/rhinocc` as the CLI does
+  (on native Windows both are `%TEMP%\rhinocc`). Only Codex's pictures (`-i`) go there; **instructions are never files** (owner's decision), they are command-line arguments for both agents.
+  Instructions share the Windows 32K command line (Claude: `--append-system-prompt`, Codex: `-c developer_instructions=...`), so both engines cap them at 29,000 characters (`InstructionLimit`);
+  the default prompt plus the generated reference is kept well under that, so keep `DefaultInstructions.md` short.
 - Only the .NET Core side (Rhino 8) can be debugged here; see `.vscode/launch.json` (netcoredbg under Wine, attach on 4711, `sourceFileMap` Z:\home -> /home).
 - The MCP server is a hand-rolled `TcpListener` HTTP server, deliberately not `HttpListener` (http.sys is shaky in Wine).
 
@@ -56,9 +67,9 @@ Builds on Linux (`EnableWindowsTargeting`). RhinoCommon versions differ per targ
 - **UI is native Eto, not a WebView.** Rhino 7's Eto WebView is the old IE engine and McNeel won't add WebView2 to Rhino 7, so one shared codebase has to be native Eto.
   The transcript is a read-only text area (selectable/copyable); the latest picture from `shot` shows in an image view under it.
 - **Storage inside the .3dm** (not sidecar/appdata).
-- **Command scope: core first.** Done: document (`status save undo redo plugins`), layers, objects (`objects info add`), editing (`move rotate scale copy delete set select`),
-  view (`shot views`), scripting (`cmd script log`). **Not ported yet** (Tectopus has them): mass / joint types / stability suite (needs the bundled `KangarooSolver.dll`),
-  oriented boxes + poses, connectivity graph, `rebase/reset pose`, named views, open/close file. Port these as further `CommandSpec`s.
+- **Command scope: only what works on both Rhinos.** Document (`status save undo redo plugins`), layers, objects (`objects info add`), editing (`move rotate scale copy delete set select`), `shot views` (`Viewing`), `cmd script log`.
+  The vendored Tectopus tools (scene/pose/contacts/mass/stability, Kangaroo) were tried and **removed** because they don't compile or run on Rhino 7 (see below). A backup was kept only outside the repo (they were never committed), so recover from the Tectopus repo if needed.
+- **Plugin loads at startup** (`LoadTime => AtStartup`) and opens the chat panel on the first idle (setting, default on). Settings has a `Check agents` button (`ProcessHost.Probe`, runs `--version`).
 
 ## Not verified yet (nobody has run this inside Rhino)
 
@@ -66,9 +77,14 @@ Builds on Linux (`EnableWindowsTargeting`). RhinoCommon versions differ per targ
 2. Launching Unix programs through Wine with piped stdin/stdout via `Z:\bin\sh` is untested.
 3. The real `claude` CLI works end to end against the MCP server (live test passed with haiku). **Codex has not been run** (not installed here); its flags (`-c` overrides, `developer_instructions`, `default_tools_approval_mode`) are copied from frederic-coultier's working code.
 4. `Newtonsoft.Json` is pinned to 9.0.1 in Core so Rhino 7 can satisfy it (assumes Rhino 7 ships ~9.x). If Rhino 7 throws a `FileLoadException` for it, revisit.
-5. `shot` (`ViewCapture`, push/pop view projection, display modes), `script` (`-_RunPythonScript`) and `save` use Rhino APIs/commands that are written from memory of the API, not exercised.
+5. `script` (`-_RunPythonScript`) and `save` are written from memory of the Rhino commands.
 6. Command output for `cmd`/`script` is the diff of `RhinoApp.CommandHistoryWindowText`; it may miss output on some versions.
 7. `RhinoDoc` events (`EndOpenDocument`, `CloseDocument`) drive switching conversations when the active document changes.
+
+## Why the Tectopus tools were dropped
+
+Compiling the vendored Tectopus code for net48 gave ~80 errors: .NET Framework gaps (`double.IsFinite`, `Math.Clamp`, `JObject.ContainsKey` in Newtonsoft 9) and real RhinoCommon 7 gaps (`PolylineCurve.CreateConvexHull2d`, `Curve.ControlPolygon`, `AddGeometry(occluding_sections)`); Kangaroo 2.5.3 needs RhinoCommon >= 7.24.
+The owner chose parity over features: remove stability and everything else that isn't on both versions. Re-adding any of it means porting to Rhino 7 first.
 
 ## Conventions
 

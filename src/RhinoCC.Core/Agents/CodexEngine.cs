@@ -21,6 +21,9 @@ namespace RhinoCC.Core.Agents
 
         public IReadOnlyList<string> Efforts { get; } = new[] { "low", "medium", "high" };
 
+        // travels as a -c override, so it shares the command line (Windows: 32K characters) with everything else
+        public int InstructionLimit => 29000;
+
         private static string Toml(string value) => JsonConvert.SerializeObject(value);
 
         public Invocation Prepare(Turn turn)
@@ -45,7 +48,17 @@ namespace RhinoCC.Core.Agents
             });
             if (!string.IsNullOrEmpty(turn.Instructions))
                 inv.Args.AddRange(new[] { "-c", "developer_instructions=" + Toml(turn.Instructions) });
-            inv.Args.AddRange(new[] { "--json", "--skip-git-repo-check", "-" });
+            inv.Args.AddRange(new[] { "--json", "--skip-git-repo-check" });
+            // pictures are handed over as files
+            for (var i = 0; i < turn.Images.Count; i++)
+            {
+                var img = turn.Images[i];
+                var ext = img.Mime != null && img.Mime.Contains("/") ? img.Mime.Substring(img.Mime.IndexOf('/') + 1) : "png";
+                var file = turn.WriteExchange($"image-{i}.{ext}", System.Convert.FromBase64String(img.Base64));
+                if (file == null) throw new System.InvalidOperationException("no folder to hand pictures to Codex");
+                inv.Args.AddRange(new[] { "-i", file });
+            }
+            inv.Args.Add("-");
             return inv;
         }
 

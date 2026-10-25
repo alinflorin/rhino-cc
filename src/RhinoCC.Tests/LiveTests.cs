@@ -61,6 +61,30 @@ namespace RhinoCC.Tests
             await Check(new ClaudeEngine());
         }
 
+        // a 16x16 solid red PNG
+        private const string RedPng = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAF0lEQVR4nGP4z8BAEiJN9aiGUQ1DSgMAkPn/Afnh+ngAAAAASUVORK5CYII=";
+
+        [Fact]
+        public async Task ClaudeSeesAnAttachedPicture()
+        {
+            if (Environment.GetEnvironmentVariable("RHINOCC_LIVE") != "claude") return;
+            var engine = new ClaudeEngine();
+            var run = new AgentRun(engine, engine.Prepare(new Turn
+            {
+                Prompt = "What single colour is this picture? Answer with one word.",
+                McpUrl = "http://127.0.0.1:1/mcp/embedded",
+                Model = "haiku",
+                Images = { new ImageAttachment { Name = "red.png", Mime = "image/png", Base64 = RedPng } },
+            }), new AgentSettings());
+            var events = new List<AgentEvent>();
+            var done = new TaskCompletionSource<bool>();
+            run.Event += e => { lock (events) events.Add(e); if (e.Kind == AgentEventKind.Done || e.Kind == AgentEventKind.Failed) done.TrySetResult(true); };
+            await run.Start();
+            await Task.WhenAny(done.Task, Task.Delay(TimeSpan.FromMinutes(3)));
+            Assert.DoesNotContain(events, e => e.Kind == AgentEventKind.Failed);
+            Assert.Contains("red", string.Join("", events.Where(e => e.Kind == AgentEventKind.Delta).Select(e => e.Text)).ToLowerInvariant());
+        }
+
         [Fact]
         public async Task CodexDrivesTheFakeCli()
         {

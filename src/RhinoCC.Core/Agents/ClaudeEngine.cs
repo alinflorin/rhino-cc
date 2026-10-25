@@ -22,6 +22,9 @@ namespace RhinoCC.Core.Agents
 
         public IReadOnlyList<string> Efforts { get; } = new[] { "low", "medium", "high", "xhigh", "max" };
 
+        // travels as an argument, so it shares the command line (Windows: 32K characters) with everything else
+        public int InstructionLimit => 29000;
+
         public Invocation Prepare(Turn turn)
         {
             var mcp = new JObject
@@ -54,6 +57,17 @@ namespace RhinoCC.Core.Agents
             if (!string.IsNullOrEmpty(turn.Model)) inv.Args.AddRange(new[] { "--model", turn.Model });
             if (!string.IsNullOrEmpty(turn.Effort)) inv.Args.AddRange(new[] { "--effort", turn.Effort });
             if (!string.IsNullOrEmpty(turn.SessionId)) inv.Args.AddRange(new[] { "--resume", turn.SessionId });
+            if (turn.Images.Count > 0)
+            {
+                // pictures need the structured input; the CLI reads one message per line
+                inv.Args.AddRange(new[] { "--input-format", "stream-json" });
+                var content = new JArray();
+                foreach (var img in turn.Images)
+                    content.Add(new JObject { ["type"] = "image", ["source"] = new JObject { ["type"] = "base64", ["media_type"] = img.Mime, ["data"] = img.Base64 } });
+                content.Add(new JObject { ["type"] = "text", ["text"] = turn.Prompt });
+                inv.Stdin = new JObject { ["type"] = "user", ["message"] = new JObject { ["role"] = "user", ["content"] = content } }
+                    .ToString(Newtonsoft.Json.Formatting.None) + "\n";
+            }
             return inv;
         }
 

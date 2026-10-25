@@ -135,7 +135,9 @@ namespace RhinoCC.Core.Cli
             sb.Append("COMMAND LINE: rhino\n");
             sb.Append("Give the command line without a leading `rhino`. Quote arguments with spaces ('...' or \"...\"). ")
               .Append("Join commands with && or newlines (it stops at the first error). Multi-line text goes in a here-document: `script <<EOF` ... `EOF` on its own line. ")
-              .Append("Points are x,y,z (z optional). Object ids may be shortened to a unique prefix. Units are the document's.\n\n");
+              .Append("Points are x,y,z (z optional). Object ids may be shortened to a unique prefix. Units are the document's. ")
+              .Append(full ? "" : "`help COMMAND` shows every option of one command.")
+              .Append("\n\n");
             foreach (var group in _order.Select(n => _commands[n]).GroupBy(c => c.Group))
             {
                 sb.Append("## ").Append(group.Key).Append('\n');

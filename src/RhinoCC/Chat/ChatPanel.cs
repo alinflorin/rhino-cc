@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -24,6 +25,10 @@ namespace RhinoCC.Chat
         private readonly TextArea _input = new TextArea { Wrap = true, Height = 70 };
         private readonly Button _send = new Button { Text = "Send" };
         private readonly Label _status = new Label { TextColor = Colors.Gray };
+        private readonly Label _attached = new Label { TextColor = Colors.Gray, VerticalAlignment = VerticalAlignment.Center };
+        private readonly Button _clear = new Button { Text = "Clear", Visible = false };
+        private readonly List<ImageAttachment> _pending = new List<ImageAttachment>();
+        private const int MaxImageBytes = 5 * 1024 * 1024;
         private readonly UITimer _timer = new UITimer { Interval = 0.15 };
         private bool _dirty = true;
         private bool _updating;
@@ -51,6 +56,10 @@ namespace RhinoCC.Chat
                 if (!_updating && _conversations.SelectedKey != null) _chat.Select(_conversations.SelectedKey);
             };
 
+            var attachButton = new Button { Text = "Attach…" };
+            attachButton.Click += (s, e) => PickImages();
+            _clear.Click += (s, e) => { _pending.Clear(); ShowPending(); };
+
             _send.Click += (s, e) => SendOrStop();
             _input.KeyDown += (s, e) =>
             {
@@ -59,6 +68,16 @@ namespace RhinoCC.Chat
                     e.Handled = true;
                     SendOrStop();
                 }
+                else if (e.Key == Keys.V && e.Control && PasteImage()) e.Handled = true;
+            };
+            // dropping picture files on the box
+            _input.AllowDrop = true;
+            _input.DragEnter += (s, e) => { if (e.Data.ContainsUris) e.Effects = DragEffects.Copy; };
+            _input.DragDrop += (s, e) =>
+            {
+                if (!e.Data.ContainsUris) return;
+                foreach (var uri in e.Data.Uris.Where(u => u.IsFile)) AddFile(uri.LocalPath);
+                e.Effects = DragEffects.Copy;
             };
 
             Content = new TableLayout
@@ -74,6 +93,7 @@ namespace RhinoCC.Chat
                     new TableRow(_transcript) { ScaleHeight = true },
                     new TableRow(_picture),
                     new TableRow(_input),
+                    new TableRow(new TableLayout(new TableRow(attachButton, new TableCell(_attached, true), _clear)) { Spacing = new Size(4, 0) }),
                     new TableRow(new TableLayout(new TableRow(new TableCell(_status, true), _send)) { Spacing = new Size(4, 0) }),
                 },
             };
@@ -98,9 +118,82 @@ namespace RhinoCC.Chat
                 return;
             }
             var text = _input.Text;
-            if (string.IsNullOrWhiteSpace(text)) return;
+            if (string.IsNullOrWhiteSpace(text) && _pending.Count == 0) return;
             _input.Text = "";
-            _chat.Send(text);
+            var images = _pending.ToList();
+            _pending.Clear();
+            ShowPending();
+            _chat.Send(text, images);
+        }
+
+        private void ShowPending()
+        {
+            _attached.Text = _pending.Count == 0 ? "" : "Attached: " + string.Join(", ", _pending.Select(p => p.Name));
+            _clear.Visible = _pending.Count > 0;
+        }
+
+        private void Add(string name, string mime, byte[] bytes)
+        {
+            if (bytes.Length > MaxImageBytes)
+            {
+                _attached.Text = $"{name} is larger than 5 MB; use a smaller picture.";
+                return;
+            }
+            _pending.Add(new ImageAttachment { Name = name, Mime = mime, Base64 = Convert.ToBase64String(bytes) });
+            ShowPending();
+        }
+
+        private void AddFile(string path)
+        {
+            var mime = MimeOf(path);
+            if (mime == null)
+            {
+                _attached.Text = "Only png, jpg, gif and webp pictures can be attached.";
+                return;
+            }
+            try { Add(Path.GetFileName(path), mime, File.ReadAllBytes(path)); }
+            catch (Exception e) { _attached.Text = "Could not read the picture: " + e.Message; }
+        }
+
+        private static string MimeOf(string path)
+        {
+            switch (Path.GetExtension(path).ToLowerInvariant())
+            {
+                case ".png": return "image/png";
+                case ".jpg":
+                case ".jpeg": return "image/jpeg";
+                case ".gif": return "image/gif";
+                case ".webp": return "image/webp";
+                default: return null;
+            }
+        }
+
+        private void PickImages()
+        {
+            var dialog = new OpenFileDialog { Title = "Attach pictures", MultiSelect = true };
+            dialog.Filters.Add(new FileFilter("Pictures", ".png", ".jpg", ".jpeg", ".gif", ".webp"));
+            if (dialog.ShowDialog(this) != DialogResult.Ok) return;
+            foreach (var f in dialog.Filenames) AddFile(f);
+        }
+
+        /// <summary>Ctrl+V with a picture on the clipboard attaches it; with anything else the box pastes as usual.</summary>
+        private bool PasteImage()
+        {
+            try
+            {
+                var clipboard = Clipboard.Instance;
+                if (!clipboard.ContainsImage) return false;
+                using (var bmp = clipboard.Image as Bitmap)
+                {
+                    if (bmp == null) return false;
+                    Add($"pasted-{_pending.Count + 1}.png", "image/png", bmp.ToByteArray(ImageFormat.Png));
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private void Configure()

@@ -23,6 +23,9 @@ namespace RhinoCC.Core.Conversations
                         case "text":
                             sb.Append(b.Text.TrimEnd()).Append('\n');
                             break;
+                        case "image":
+                            sb.Append("  [picture: ").Append(b.Text).Append("]\n");
+                            break;
                         case "thought":
                             var first = (b.Text ?? "").Trim().Split('\n').FirstOrDefault() ?? "";
                             sb.Append("  … ").Append(first.Length > 140 ? first.Substring(0, 139) + "…" : first).Append('\n');

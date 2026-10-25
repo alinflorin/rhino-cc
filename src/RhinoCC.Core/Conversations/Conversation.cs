@@ -52,6 +52,18 @@ namespace RhinoCC.Core.Conversations
             return m;
         }
 
+        public void AddImages(ChatMessage message, IEnumerable<ImageAttachment> images)
+        {
+            foreach (var img in images)
+                message.Blocks.Add(new Block
+                {
+                    Kind = "image",
+                    Text = img.Name,
+                    Done = true,
+                    Output = new List<ToolPart> { new ToolPart { Type = "image", Mime = img.Mime, Data = img.Base64 } },
+                });
+        }
+
         public ChatMessage AddAssistant()
         {
             var m = new ChatMessage { Role = "assistant" };

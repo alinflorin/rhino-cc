@@ -78,6 +78,36 @@ namespace RhinoCC.Core.Agents
             return psi;
         }
 
+        /// <summary>Runs <c>PROGRAM --version</c> the way a real turn would start it, to tell the user whether the CLI can be found.</summary>
+        public static KeyValuePair<bool, string> Probe(string program, AgentSettings settings, int timeoutMs = 20000)
+        {
+            var inv = new Invocation { Program = program };
+            inv.Args.Add("--version");
+            try
+            {
+                using (var p = Process.Start(Build(inv, settings)))
+                {
+                    p.StandardInput.Close();
+                    var output = p.StandardOutput.ReadToEndAsync();
+                    var error = p.StandardError.ReadToEndAsync();
+                    if (!p.WaitForExit(timeoutMs))
+                    {
+                        try { p.Kill(); } catch { /* gone */ }
+                        return new KeyValuePair<bool, string>(false, "timed out");
+                    }
+                    var text = (output.Result + "\n" + error.Result).Trim();
+                    var first = text.Split('\n')[0].Trim();
+                    return p.ExitCode == 0 && first.Length > 0
+                        ? new KeyValuePair<bool, string>(true, first)
+                        : new KeyValuePair<bool, string>(false, first.Length > 0 ? first : "exit code " + p.ExitCode);
+                }
+            }
+            catch (Exception e)
+            {
+                return new KeyValuePair<bool, string>(false, e.Message);
+            }
+        }
+
         /// <summary>Quotes arguments by the Windows rules (what Wine and .NET Framework both parse back).</summary>
         public static string JoinArguments(IEnumerable<string> args)
         {
