@@ -21,5 +21,16 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
-      # tests (Core only; Rhino can't run here), then both plugin targets (net48 + net7.0-windows)
-      - run: CONFIG=Release ./build.sh all
+          cache: true   # NuGet packages, keyed on the packages.lock.json files
+          cache-dependency-path: "**/packages.lock.json"
+      # locked mode fails the build if a package changed without its lock file being updated
+      - run: dotnet restore --locked-mode
+      - name: Test
+        run: dotnet test src/RhinoCC.Tests -c Release --no-restore --logger "trx;LogFileName=tests.trx" --results-directory TestResults
+      - name: Build plugin (Rhino 7 + Rhino 8)
+        run: dotnet build src/RhinoCC -c Release --no-restore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: TestResults

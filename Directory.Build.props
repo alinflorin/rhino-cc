@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- packages.lock.json: reproducible restores, and the key for the CI package cache -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+</Project>

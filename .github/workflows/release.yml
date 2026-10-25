@@ -18,6 +18,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
+          cache: true   # NuGet packages, keyed on the packages.lock.json files
+          cache-dependency-path: "**/packages.lock.json"
 
       - name: Version
         id: v
@@ -25,13 +27,14 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-manual.${GITHUB_RUN_NUMBER}"; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
+      - run: dotnet restore --locked-mode
       - name: Test
-        run: dotnet test src/RhinoCC.Tests -c Release
+        run: dotnet test src/RhinoCC.Tests -c Release --no-restore
 
       - name: Build and zip
         run: |
           v='${{ steps.v.outputs.version }}'
-          dotnet build src/RhinoCC -c Release -p:Version="$v"
+          dotnet build src/RhinoCC -c Release --no-restore -p:Version="$v"
           mkdir dist
           pack() { # <target folder> <zip name>
             local d="src/RhinoCC/bin/Release/$1"
