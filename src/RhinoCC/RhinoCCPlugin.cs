@@ -20,7 +20,7 @@ namespace RhinoCC
 #if DEBUG
             RhinoCC.Core.Log.Sink = m => Rhino.RhinoApp.InvokeOnUiThread(new System.Action(() => Rhino.RhinoApp.WriteLine(m)));
 #endif
-            // the icon is an embedded .ico (made by scripts/make-icon.py): a GDI icon drawn at run time did not show in the sidebar
+            // the icon is an embedded .ico: a GDI icon drawn at run time did not show in the sidebar
             using (var s = typeof(RhinoCCPlugin).Assembly.GetManifestResourceStream("panel.ico"))
                 Panels.RegisterPanel(this, typeof(Chat.ChatPanel), "RhinoCC Agent", new System.Drawing.Icon(s, 24, 24));
             Chat.UpdateService.Start();
