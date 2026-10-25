@@ -26,11 +26,12 @@ namespace RhinoCC.Cli
             Editing(cli);
             Materials(cli);
             Viewing(cli);
+            AnalyzeCommand.Register(cli);
             Scripting(cli);
             return cli;
         }
 
-        private static RhinoDoc Doc()
+        internal static RhinoDoc Doc()
         {
             var doc = RhinoDoc.ActiveDoc;
             if (doc == null) throw new CliException("no document is open in Rhino");
