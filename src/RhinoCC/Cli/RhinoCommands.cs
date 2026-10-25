@@ -24,6 +24,7 @@ namespace RhinoCC.Cli
             Layers(cli);
             Objects(cli);
             Editing(cli);
+            Materials(cli);
             Viewing(cli);
             Scripting(cli);
             return cli;
@@ -155,6 +156,71 @@ namespace RhinoCC.Cli
                 doc.Layers.SetCurrentLayerIndex(index, true);
                 return CliResult.Ok("current layer: " + doc.Layers[index].FullPath);
             }));
+
+            cli.Register(new CommandSpec("layer-set", "Layers", "layer-set NAME [--rename NEW] [--color R,G,B] [--visible on|off] [--locked on|off]", "Renames a layer, recolours it, hides/shows it or locks/unlocks it. Objects move between layers with `set --layer`.", a =>
+            {
+                var doc = Doc();
+                var name = a.Pos(0, "NAME");
+                var index = doc.Layers.FindByFullPath(name, RhinoMath.UnsetIntIndex);
+                if (index == RhinoMath.UnsetIntIndex) throw new CliException($"no layer '{name}'");
+                if (!a.Has("rename") && !a.Has("color") && !a.Has("visible") && !a.Has("locked")) throw new CliException("nothing to change; give at least one option");
+                var layer = doc.Layers[index];
+                if (a.Has("rename")) layer.Name = a.Opt("rename");
+                if (a.Has("color")) layer.Color = Fmt.Color(a.Opt("color"), "--color");
+                if (a.Has("visible")) layer.IsVisible = Fmt.OnOff(a.Opt("visible"), "--visible");
+                if (a.Has("locked")) layer.IsLocked = Fmt.OnOff(a.Opt("locked"), "--locked");
+                if (!doc.Layers.Modify(layer, index, true)) throw new CliException("Rhino refused the change (a layer being current cannot be hidden, and names must be unique)");
+                doc.Views.Redraw();
+                return CliResult.Ok("updated layer " + doc.Layers[index].FullPath);
+            }).Opt("rename", "NEW", "New name (not a path).").Opt("color", "R,G,B", "Layer colour.").Opt("visible", "on|off", "Show or hide.").Opt("locked", "on|off", "Lock or unlock."));
+
+            cli.Register(new CommandSpec("layer-state", "Layers", "layer-state [save NAME | restore NAME | rm NAME]", "Saved sets of layer visibility and locks (kept in the file), e.g. to hide construction layers for a picture and bring them back. Without arguments, lists them.", a =>
+            {
+                var doc = Doc();
+                const string prefix = "RhinoCC.layerstate.";
+                if (a.Positional.Count == 0)
+                {
+                    var names = new List<string>();
+                    for (var i = 0; i < doc.Strings.Count; i++)
+                    {
+                        var key = doc.Strings.GetKey(i);
+                        if (key != null && key.StartsWith(prefix, StringComparison.Ordinal)) names.Add(key.Substring(prefix.Length));
+                    }
+                    return CliResult.Ok(names.Count == 0 ? "(no saved layer states)" : string.Join("\n", names.OrderBy(n => n, StringComparer.OrdinalIgnoreCase)));
+                }
+                var action = a.Positional[0].ToLowerInvariant();
+                var state = a.Pos(1, "NAME");
+                var stateKey = prefix + state;
+                switch (action)
+                {
+                    case "save":
+                        doc.Strings.SetString(stateKey, string.Join("\n", doc.Layers.Where(l => !l.IsDeleted).Select(l => $"{(l.IsVisible ? 1 : 0)}{(l.IsLocked ? 1 : 0)}{l.FullPath}")));
+                        return CliResult.Ok($"saved layer state '{state}'");
+                    case "restore":
+                        {
+                            var text = doc.Strings.GetValue(stateKey) ?? throw new CliException($"no layer state '{state}'");
+                            var n = 0;
+                            foreach (var line in text.Split('\n'))
+                            {
+                                if (line.Length < 3) continue;
+                                var index = doc.Layers.FindByFullPath(line.Substring(2), RhinoMath.UnsetIntIndex);
+                                if (index == RhinoMath.UnsetIntIndex) continue; // the layer was deleted since
+                                var layer = doc.Layers[index];
+                                layer.IsVisible = line[0] == '1' || index == doc.Layers.CurrentLayerIndex;
+                                layer.IsLocked = line[1] == '1';
+                                if (doc.Layers.Modify(layer, index, true)) n++;
+                            }
+                            doc.Views.Redraw();
+                            return CliResult.Ok($"restored layer state '{state}' ({n} layers)");
+                        }
+                    case "rm":
+                        if (doc.Strings.GetValue(stateKey) == null) throw new CliException($"no layer state '{state}'");
+                        doc.Strings.Delete(stateKey);
+                        return CliResult.Ok($"removed layer state '{state}'");
+                    default:
+                        throw new CliException($"unknown action '{action}' (save, restore, rm)");
+                }
+            }));
         }
 
         // ---------------------------------------------------------------- objects
@@ -225,11 +291,13 @@ namespace RhinoCC.Cli
                         sb.AppendLine($"  point: {Fmt.P(p.Location)}");
                     if (o.Attributes.ColorSource == ObjectColorSource.ColorFromObject)
                         sb.AppendLine($"  color: {o.Attributes.ObjectColor.R},{o.Attributes.ObjectColor.G},{o.Attributes.ObjectColor.B}");
+                    if (o.Attributes.MaterialSource == ObjectMaterialSource.MaterialFromObject && o.Attributes.MaterialIndex >= 0)
+                        sb.AppendLine($"  material: {doc.Materials[o.Attributes.MaterialIndex]?.Name}");
                 }
                 return CliResult.Ok(sb.ToString().TrimEnd());
             }));
 
-            cli.Register(new CommandSpec("add", "Objects", "add KIND ARGS... [--at X,Y,Z] [--name N] [--layer L] [--color R,G,B]", "Adds geometry and prints its id. KIND: point, line, polyline, curve, circle, arc, ellipse, box, sphere, cylinder, cone. Solids are centred on --at (default the origin).", a =>
+            cli.Register(new CommandSpec("add", "Objects", "add KIND ARGS... [--at X,Y,Z] [--name N] [--layer L] [--color R,G,B] [--material M]", "Adds geometry and prints its id. KIND: point, line, polyline, curve, circle, arc, ellipse, box, sphere, cylinder, cone. Solids are centred on --at (default the origin).", a =>
             {
                 var doc = Doc();
                 var kind = a.Pos(0, "KIND").ToLowerInvariant();
@@ -297,7 +365,7 @@ namespace RhinoCC.Cli
                 doc.Views.Redraw();
                 return CliResult.Ok($"added {kind} {id}");
             }).Opt("at", "X,Y,Z", "Centre / origin.").Opt("axis", "x|y|z", "Axis of circle, cylinder and cone (default z).").Flag("cap", "Cap the ends of a cylinder or cone.")
-              .Flag("close", "Close a polyline.").Opt("degree", "N", "Degree of a curve through control points (default 3).").Opt("name", "N", "Object name.").Opt("layer", "L", "Layer (created if missing).").Opt("color", "R,G,B", "Object colour.")
+              .Flag("close", "Close a polyline.").Opt("degree", "N", "Degree of a curve through control points (default 3).").Opt("name", "N", "Object name.").Opt("layer", "L", "Layer (created if missing).").Opt("color", "R,G,B", "Object colour.").Opt("material", "M", "Material name (see `materials`).")
               .Example("add box 20 10 5 --at 0,0,2.5 --name base")
               .Example("add polyline 0,0 10,0 10,10 --close")
               .Example("add cylinder 3 12 --cap --axis x"));
@@ -325,6 +393,13 @@ namespace RhinoCC.Cli
             {
                 attrs.ObjectColor = Fmt.Color(a.Opt("color"), "--color");
                 attrs.ColorSource = ObjectColorSource.ColorFromObject;
+            }
+            if (a.Has("material"))
+            {
+                var index = doc.Materials.Find(a.Opt("material"), true);
+                if (index < 0) throw new CliException($"no material '{a.Opt("material")}' (`materials` lists them, `material-new` makes one)");
+                attrs.MaterialIndex = index;
+                attrs.MaterialSource = ObjectMaterialSource.MaterialFromObject;
             }
         }
 
@@ -386,7 +461,7 @@ namespace RhinoCC.Cli
                 return CliResult.Ok($"deleted {n} object(s)");
             }));
 
-            cli.Register(Edit("set", "set ID... [--name N] [--layer L] [--color R,G,B]", "Changes name, layer or colour of objects.", (a, doc, ids) =>
+            cli.Register(Edit("set", "set ID... [--name N] [--layer L] [--color R,G,B] [--material M]", "Changes name, layer, colour or material of objects.", (a, doc, ids) =>
             {
                 foreach (var id in ids)
                 {
@@ -397,7 +472,7 @@ namespace RhinoCC.Cli
                 }
                 doc.Views.Redraw();
                 return CliResult.Ok($"updated {ids.Count} object(s)");
-            }).Opt("name", "N", "New name.").Opt("layer", "L", "Layer (created if missing).").Opt("color", "R,G,B", "Object colour."));
+            }).Opt("name", "N", "New name.").Opt("layer", "L", "Layer (created if missing).").Opt("color", "R,G,B", "Object colour.").Opt("material", "M", "Material name (see `materials`)."));
 
             cli.Register(new CommandSpec("select", "Editing", "select ID... | --all | --layer NAME | --name NAME | --type TYPE | --none", "Changes the selection (what the user sees highlighted). Filters add up.", a =>
             {
@@ -425,7 +500,51 @@ namespace RhinoCC.Cli
               .Opt("type", "TYPE", "Select by object type: Brep, Extrusion, Curve, Point, Mesh, ...").Flag("none", "Clear the selection."));
         }
 
+        // ---------------------------------------------------------------- materials
+
+        private static void Materials(RhinoCli cli)
+        {
+            cli.Register(new CommandSpec("materials", "Materials", "materials", "Lists the document's materials (name, colour). Assign one with `set ID... --material NAME` or `add ... --material NAME`.", a =>
+            {
+                var doc = Doc();
+                var lines = new List<string>();
+                for (var i = 0; i < doc.Materials.Count; i++)
+                {
+                    var m = doc.Materials[i];
+                    if (m == null || m.IsDeleted) continue;
+                    lines.Add($"{(string.IsNullOrEmpty(m.Name) ? "(unnamed)" : m.Name)}  color={m.DiffuseColor.R},{m.DiffuseColor.G},{m.DiffuseColor.B}");
+                }
+                return CliResult.Ok(lines.Count == 0 ? "(no materials; `material-new` makes one)" : string.Join("\n", lines));
+            }));
+
+            cli.Register(new CommandSpec("material-new", "Materials", "material-new NAME [--color R,G,B] [--shine 0-1] [--transparency 0-1]", "Creates a material (a plain colour, for viewports and renders).", a =>
+            {
+                var doc = Doc();
+                var name = a.Pos(0, "NAME");
+                if (doc.Materials.Find(name, true) >= 0) throw new CliException($"a material named '{name}' exists already");
+                var m = new Material { Name = name, DiffuseColor = a.Has("color") ? Fmt.Color(a.Opt("color"), "--color") : System.Drawing.Color.Gray };
+                if (a.Has("shine")) m.Shine = Unit(a.OptNumber("shine").Value, "--shine") * Material.MaxShine;
+                if (a.Has("transparency")) m.Transparency = Unit(a.OptNumber("transparency").Value, "--transparency");
+                if (doc.Materials.Add(m) < 0) throw new CliException("Rhino did not add the material");
+                doc.Views.Redraw();
+                return CliResult.Ok("created material " + name);
+            }).Opt("color", "R,G,B", "Diffuse colour (default grey).").Opt("shine", "0-1", "How glossy.").Opt("transparency", "0-1", "0 opaque, 1 clear."));
+        }
+
+        private static double Unit(double v, string what)
+        {
+            if (v < 0 || v > 1) throw new CliException($"{what} is between 0 and 1");
+            return v;
+        }
+
         // ---------------------------------------------------------------- viewing
+
+        private static Rhino.Display.RhinoView FindView(RhinoDoc doc, string name)
+        {
+            if (string.IsNullOrEmpty(name)) return doc.Views.ActiveView ?? throw new CliException("there is no active view");
+            return doc.Views.FirstOrDefault(v => string.Equals(v.ActiveViewport.Name, name, StringComparison.OrdinalIgnoreCase))
+                ?? throw new CliException($"no viewport '{name}' (`views` lists them)");
+        }
 
         private static void Viewing(RhinoCli cli)
         {
@@ -489,11 +608,82 @@ namespace RhinoCC.Cli
               .Example("shot --view top --display Wireframe")
               .Example("shot --view iso --zoom 3fa85f64"));
 
-            cli.Register(new CommandSpec("views", "View", "views", "Lists the viewports and their display modes.", a =>
+            cli.Register(new CommandSpec("views", "View", "views", "Lists the viewports: display mode, projection, lens and camera position/target.", a =>
             {
                 var doc = Doc();
-                return CliResult.Ok(string.Join("\n", doc.Views.Select(v => $"{v.ActiveViewport.Name}{(v == doc.Views.ActiveView ? " *" : "")}  {v.ActiveViewport.DisplayMode.EnglishName}")) + "\n(* = active)");
+                return CliResult.Ok(string.Join("\n", doc.Views.Select(v =>
+                {
+                    var vp = v.ActiveViewport;
+                    var lens = vp.IsPerspectiveProjection ? $"perspective {Fmt.N(vp.Camera35mmLensLength)}mm" : "parallel";
+                    return $"{vp.Name}{(v == doc.Views.ActiveView ? " *" : "")}  {vp.DisplayMode.EnglishName}  {lens}  camera {Fmt.P(vp.CameraLocation)} -> {Fmt.P(vp.CameraTarget)}";
+                })) + "\n(* = active)");
             }));
+
+            cli.Register(new CommandSpec("zoom", "View", "zoom [ID...|selected] [--viewport NAME]", "Frames objects, the selection, or everything (no arguments) in a viewport. Unlike `shot --zoom` this changes what the user sees.", a =>
+            {
+                var doc = Doc();
+                var view = FindView(doc, a.Opt("viewport"));
+                if (a.Positional.Count == 0) view.ActiveViewport.ZoomExtents();
+                else
+                {
+                    var ids = a.Positional.Count == 1 && a.Positional[0] == "selected"
+                        ? doc.Objects.GetSelectedObjects(false, false).Select(o => o.Id).ToList()
+                        : Fmt.Ids(doc, a.Positional);
+                    if (ids.Count == 0) throw new CliException("nothing is selected");
+                    var box = BoundingBox.Empty;
+                    foreach (var id in ids) box.Union(doc.Objects.FindId(id).Geometry.GetBoundingBox(true));
+                    view.ActiveViewport.ZoomBoundingBox(box);
+                }
+                view.Redraw();
+                return CliResult.Ok("zoomed " + view.ActiveViewport.Name);
+            }).Opt("viewport", "NAME", "Viewport to change (default the active one)."));
+
+            cli.Register(new CommandSpec("named-views", "View", "named-views [save NAME | restore NAME | rm NAME] [--viewport NAME]", "Saved cameras (kept in the file). Without arguments, lists them. `save` replaces one of the same name; `restore` applies it to the viewport.", a =>
+            {
+                var doc = Doc();
+                if (a.Positional.Count == 0)
+                {
+                    var lines = new List<string>();
+                    for (var i = 0; i < doc.NamedViews.Count; i++)
+                    {
+                        var nv = doc.NamedViews[i];
+                        if (nv == null) continue;
+                        var vp = nv.Viewport;
+                        lines.Add(vp == null ? nv.Name : $"{nv.Name}  {(vp.IsPerspectiveProjection ? "perspective " + Fmt.N(vp.Camera35mmLensLength) + "mm" : "parallel")}  camera {Fmt.P(vp.CameraLocation)} -> {Fmt.P(vp.TargetPoint)}");
+                    }
+                    return CliResult.Ok(lines.Count == 0 ? "(no named views)" : string.Join("\n", lines));
+                }
+                var action = a.Positional[0].ToLowerInvariant();
+                var name = a.Pos(1, "NAME");
+                switch (action)
+                {
+                    case "save":
+                        {
+                            var view = FindView(doc, a.Opt("viewport"));
+                            if (doc.NamedViews.FindByName(name) >= 0) doc.NamedViews.Delete(name);
+                            if (doc.NamedViews.Add(name, view.ActiveViewport.Id) < 0) throw new CliException("Rhino did not save the view");
+                            return CliResult.Ok($"saved named view '{name}'");
+                        }
+                    case "restore":
+                        {
+                            var index = doc.NamedViews.FindByName(name);
+                            if (index < 0) throw new CliException($"no named view '{name}'");
+                            var view = FindView(doc, a.Opt("viewport"));
+                            // Rhino renames the viewport to the view's name; the user's viewport keeps its own
+                            var original = view.ActiveViewport.Name;
+                            if (!doc.NamedViews.Restore(index, view.ActiveViewport)) throw new CliException("Rhino could not restore the view");
+                            if (!string.IsNullOrEmpty(original) && view.ActiveViewport.Name != original) view.ActiveViewport.Name = original;
+                            view.Redraw();
+                            return CliResult.Ok($"restored named view '{name}' in {original}");
+                        }
+                    case "rm":
+                        if (doc.NamedViews.FindByName(name) < 0) throw new CliException($"no named view '{name}'");
+                        doc.NamedViews.Delete(name);
+                        return CliResult.Ok($"removed named view '{name}'");
+                    default:
+                        throw new CliException($"unknown action '{action}' (save, restore, rm)");
+                }
+            }).Opt("viewport", "NAME", "Viewport to save from or restore into (default the active one)."));
         }
 
         private static Rhino.Display.DefinedViewportProjection ParseProjection(string name)
@@ -520,6 +710,39 @@ namespace RhinoCC.Cli
         {
             var after = History();
             return after.StartsWith(before, StringComparison.Ordinal) ? after.Substring(before.Length).Trim() : after.Trim();
+        }
+
+        private static string PyWord(string text, string what)
+        {
+            if (!System.Text.RegularExpressions.Regex.IsMatch(text, @"^\w+$")) throw new CliException($"{what}: letters, digits and _ only");
+            return text;
+        }
+
+        /// <summary>Runs Python in Rhino and returns what it passed to emit(). A file carries the answer, because the command history may miss output.</summary>
+        private static string PythonQuery(string body)
+        {
+            Doc(); // fail early when nothing is open
+            var outFile = Path.Combine(Path.GetTempPath(), "rhinocc-out-" + Guid.NewGuid().ToString("N") + ".txt");
+            var scriptFile = Path.ChangeExtension(outFile, ".py");
+            var code = new StringBuilder();
+            code.Append("# -*- coding: utf-8 -*-\nimport io\n_o = io.open(r\"").Append(outFile).Append("\", \"w\", encoding=\"utf-8\")\n")
+                .Append("def emit(s):\n    if not isinstance(s, type(u\"\")):\n        s = s.decode(\"utf-8\", \"replace\")\n    _o.write(s + u\"\\n\")\n")
+                .Append("try:\n");
+            foreach (var line in body.Split('\n')) code.Append("    ").Append(line).Append('\n');
+            code.Append("except Exception as e:\n    emit(\"error: %r\" % (e,))\nfinally:\n    _o.close()\n");
+            File.WriteAllText(scriptFile, code.ToString());
+            try
+            {
+                var before = History();
+                RhinoApp.RunScript($"-_RunPythonScript \"{scriptFile}\"", false);
+                if (!File.Exists(outFile)) throw new CliException("the Python script did not run" + (NewHistory(before).Length == 0 ? "" : ":\n" + NewHistory(before)));
+                return File.ReadAllText(outFile, Encoding.UTF8).TrimEnd();
+            }
+            finally
+            {
+                try { File.Delete(scriptFile); } catch { /* temp file */ }
+                try { File.Delete(outFile); } catch { /* temp file */ }
+            }
         }
 
         private static void Scripting(RhinoCli cli)
@@ -555,6 +778,33 @@ namespace RhinoCC.Cli
                     try { File.Delete(file); } catch { /* temp file */ }
                 }
             }).Example("script <<EOF\nimport rhinoscriptsyntax as rs\nprint(len(rs.AllObjects()))\nEOF"));
+
+            cli.Register(new CommandSpec("py-funcs", "Scripting", "py-funcs [FILTER]", "Lists the rhinoscriptsyntax functions of this Rhino whose name contains FILTER (letters/digits, e.g. `curve`, `surface`, `boolean`). Find the function before you script it.", a =>
+            {
+                var filter = a.Positional.Count > 0 ? PyWord(a.Positional[0], "FILTER") : "";
+                return CliResult.Ok(PythonQuery(
+                    "import rhinoscriptsyntax as rs\n" +
+                    $"f = \"{filter}\".lower()\n" +
+                    "names = sorted(n for n in dir(rs) if not n.startswith(\"_\") and callable(getattr(rs, n, None)) and f in n.lower())\n" +
+                    "emit(\", \".join(names[:200]))\n" +
+                    "emit(\"(%d functions%s)\" % (len(names), \"; showing 200, add a FILTER to narrow\" if len(names) > 200 else \"\"))"));
+            }).Example("py-funcs curve"));
+
+            cli.Register(new CommandSpec("py-help", "Scripting", "py-help FUNCTION", "The documentation of one rhinoscriptsyntax function: arguments, return value, example. Read it before using a function you are not sure of.", a =>
+            {
+                var name = PyWord(a.Pos(0, "FUNCTION"), "FUNCTION");
+                var text = PythonQuery(
+                    "import rhinoscriptsyntax as rs\n" +
+                    $"w = \"{name}\".lower()\n" +
+                    "hit = [n for n in dir(rs) if n.lower() == w and callable(getattr(rs, n, None))]\n" +
+                    "if hit:\n" +
+                    "    emit(hit[0])\n" +
+                    "    emit((getattr(rs, hit[0]).__doc__ or \"(no documentation)\").strip())\n" +
+                    "else:\n" +
+                    "    near = sorted(n for n in dir(rs) if w in n.lower() and not n.startswith(\"_\"))\n" +
+                    "    emit(\"no function '%s'.\" % w + (\" Similar: \" + \", \".join(near[:30]) if near else \" `py-funcs FILTER` searches by name.\"))");
+                return CliResult.Ok(text.Length > 6000 ? text.Substring(0, 6000) + "\n… (cut)" : text);
+            }).Example("py-help AddLoftSrf"));
 
             cli.Register(new CommandSpec("log", "Scripting", "log [N]", "The last N (default 30) lines of Rhino's command history.", a =>
             {

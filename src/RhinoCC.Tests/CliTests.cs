@@ -1,4 +1,6 @@
+using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using RhinoCC.Core.Cli;
 using Xunit;
 
@@ -132,5 +134,15 @@ namespace RhinoCC.Tests
             Assert.DoesNotContain("--by N  Offset.", compact);
             Assert.Contains("`help COMMAND` shows every option", compact);
         }
+
+        [Fact]
+        public void DefaultInstructionsLeaveRoomForTheReference()
+        {
+            // both engines take 29,000 characters; the generated reference (~4.5K), the Rhino info (<=2.7K) and custom text come on top
+            var path = Path.Combine(Path.GetDirectoryName(ThisFile()), "..", "RhinoCC", "Chat", "DefaultInstructions.md");
+            Assert.True(File.ReadAllText(path).Length <= 20000, "DefaultInstructions.md is too long for the 29,000 character limit");
+        }
+
+        private static string ThisFile([CallerFilePath] string path = "") => path;
     }
 }

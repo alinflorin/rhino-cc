@@ -34,6 +34,16 @@ namespace RhinoCC.Cli
             return System.Drawing.Color.FromArgb(int.Parse(parts[0]), int.Parse(parts[1]), int.Parse(parts[2]));
         }
 
+        public static bool OnOff(string text, string what)
+        {
+            switch (text.ToLowerInvariant())
+            {
+                case "on": case "true": case "yes": case "1": return true;
+                case "off": case "false": case "no": case "0": return false;
+                default: throw new CliException($"{what}: '{text}' is not on or off");
+            }
+        }
+
         public static string Box(BoundingBox b) => b.IsValid ? $"[{P(b.Min)} .. {P(b.Max)}]" : "[none]";
 
         /// <summary>Full ids, or a unique prefix of one; ids are 36 characters and agents should not have to repeat them.</summary>
