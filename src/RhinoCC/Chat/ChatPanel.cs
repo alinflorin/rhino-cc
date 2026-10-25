@@ -229,6 +229,7 @@ namespace RhinoCC.Chat
             _model.Items.Clear();
             foreach (var m in engine.Models) _model.Items.Add(new ListItem { Text = m.Id, Key = m.Id });
             _model.Text = model;
+            RhinoCC.Core.Log.Write($"model list for {engine.Id}: {_model.Items.Count} item(s), text '{_model.Text}'");
         }
 
         private void ShowStatus()
@@ -271,7 +272,7 @@ namespace RhinoCC.Chat
                     _agent.SelectedKey = c.Agent;
                     FillEfforts();
                 }
-                else if (_effort.Items.Count == 0) FillEfforts();
+                else if (_effort.Items.Count == 0 || _model.Items.Count != Engines.Get(c.Agent).Models.Count) FillEfforts();
                 _effort.SelectedKey = c.Effort ?? DefaultItem;
                 if (_model.Text != (c.Model ?? "")) _model.Text = c.Model ?? "";
                 var idle = !_chat.Running;
