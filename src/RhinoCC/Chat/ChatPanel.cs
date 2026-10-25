@@ -36,6 +36,8 @@ namespace RhinoCC.Chat
         private readonly Meter _contextMeter = new Meter("Context");
         private readonly Meter[] _limitMeters = { new Meter(""), new Meter(""), new Meter("") };
         private readonly StackLayout _meters;
+        private readonly Label _version = new Label { Text = "v" + UpdateService.Version, TextColor = Colors.Gray, VerticalAlignment = VerticalAlignment.Center };
+        private readonly Button _update = new Button { Visible = false };
 
         public ChatPanel()
         {
@@ -97,10 +99,11 @@ namespace RhinoCC.Chat
                     new TableRow(_busy),
                     new TableRow(_input),
                     new TableRow(new TableLayout(new TableRow(attachButton, new TableCell(_attached, true), _clear)) { Spacing = new Size(4, 0) }),
-                    new TableRow(new TableLayout(new TableRow(new TableCell(_status, true), _send)) { Spacing = new Size(4, 0) }),
+                    new TableRow(new TableLayout(new TableRow(new TableCell(_status, true), _version, _update, _send)) { Spacing = new Size(4, 0) }),
                 },
             };
 
+            _update.Click += (s, e) => OnUpdateClick();
             _chat.Changed += OnChanged;
             _timer.Elapsed += (s, e) =>
             {
@@ -108,6 +111,7 @@ namespace RhinoCC.Chat
                 {
                     // follows the active document, however it became active (open, tab switch, close)
                     _chat.Sync();
+                    ShowUpdate();
                     if (_dirty) Refresh();
                     else if (_chat.Running) ShowStatus();
                 }
@@ -124,6 +128,22 @@ namespace RhinoCC.Chat
         }
 
         private void OnChanged() => _dirty = true;
+
+        private void ShowUpdate()
+        {
+            var text = UpdateService.Installed != null ? $"Restart Rhino for {UpdateService.Installed}"
+                : UpdateService.Available != null ? $"Update to {UpdateService.Available.Version}" : null;
+            if (_update.Text != (text ?? _update.Text) || _update.Visible != (text != null)) { _update.Text = text ?? ""; _update.Visible = text != null; }
+            _version.ToolTip = UpdateService.Message ?? "RhinoCC version; Conversation ▾ > Check for updates";
+            if (UpdateService.Message != null && !_chat.Running) { _status.Text = UpdateService.Message; _status.TextColor = Colors.Gray; }
+        }
+
+        private void OnUpdateClick()
+        {
+            if (UpdateService.Installed != null)
+                MessageBox.Show($"RhinoCC {UpdateService.Installed} is installed. Save your work and restart Rhino to start using it.", "RhinoCC", MessageBoxType.Information);
+            else UpdateService.InstallNow();
+        }
 
         /// <summary>What belongs to the conversation on show, and the sound; Eto has no menu bar in a panel, so this is a pop-up.</summary>
         private void ShowMenu(Control anchor)
@@ -143,6 +163,8 @@ namespace RhinoCC.Chat
                 if (MessageBox.Show("Delete this conversation from the model?", "RhinoCC", MessageBoxButtons.YesNo, MessageBoxType.Question) == DialogResult.Yes)
                     _chat.DeleteCurrent();
             };
+            var updates = new ButtonMenuItem { Text = "Check for updates", Enabled = !UpdateService.Busy };
+            updates.Click += (s, e) => UpdateService.Check(true);
             var settings = new ButtonMenuItem { Text = "Settings…" };
             settings.Click += (s, e) => new SettingsDialog().ShowModal(this);
             var menu = new ContextMenu();
@@ -152,6 +174,7 @@ namespace RhinoCC.Chat
             menu.Items.Add(compact);
             menu.Items.Add(delete);
             menu.Items.Add(new SeparatorMenuItem());
+            menu.Items.Add(updates);
             menu.Items.Add(settings);
             menu.Show(anchor);
         }

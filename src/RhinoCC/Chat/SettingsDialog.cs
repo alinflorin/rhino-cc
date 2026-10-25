@@ -45,6 +45,7 @@ namespace RhinoCC.Chat
             chimePlay.Click += (s, e) => Chime.Play();
             chimeOn.CheckedChanged += (s, e) => chimeSecs.Enabled = chimeOn.Checked == true;
             chimeSecs.Enabled = chimeOn.Checked == true;
+            var autoUpdate = new CheckBox { Text = $"Update RhinoCC by itself from GitHub (this is version {UpdateService.Version})", Checked = AppSettings.AutoUpdate };
             var check = new Button { Text = "Check agents" };
             var checkResult = new Label { TextColor = Colors.Gray, Text = "" };
             check.Click += (s, e) =>
@@ -78,6 +79,7 @@ namespace RhinoCC.Chat
                 AppSettings.Port = (int)port.Value;
                 AppSettings.ChimeOn = chimeOn.Checked == true;
                 AppSettings.ChimeSecs = (int)chimeSecs.Value;
+                AppSettings.AutoUpdate = autoUpdate.Checked == true;
                 AppSettings.AllTools = allTools.Checked == true;
                 AppSettings.OpenAtStartup = openAtStartup.Checked == true;
                 AppSettings.Instructions = instructions.Text;
@@ -106,6 +108,7 @@ namespace RhinoCC.Chat
                     new TableRow(new TableLayout(new TableRow(chimeOn, new Label { Text = "after (seconds)", VerticalAlignment = VerticalAlignment.Center }, chimeSecs, chimePlay)) { Spacing = new Size(6, 0) }),
                     new TableRow(allTools),
                     new TableRow(openAtStartup),
+                    new TableRow(autoUpdate),
                     new TableRow(new Label { Text = "Your instructions for the agent (sent before the command reference):" }),
                     new TableRow(instructions) { ScaleHeight = true },
                     new TableRow(new TableLayout(new TableRow(reset, new TableCell(null, true), cancel, ok)) { Spacing = new Size(6, 0) }),

@@ -40,6 +40,7 @@ namespace RhinoCC.Chat
         public static string HostShell { get => S.GetString("hostShell", "/bin/sh"); set => S.SetString("hostShell", value); }
         public static int Port { get => S.GetInteger("port", DefaultPort); set => S.SetInteger("port", value); }
         public static bool OpenAtStartup { get => S.GetBool("openAtStartup", true); set => S.SetBool("openAtStartup", value); }
+        public static bool AutoUpdate { get => S.GetBool("autoUpdate", true); set => S.SetBool("autoUpdate", value); }
         public static bool AllTools { get => S.GetBool("allTools", false); set => S.SetBool("allTools", value); }
         public static bool ChimeOn { get => S.GetBool("chimeOn", true); set => S.SetBool("chimeOn", value); }
         /// <summary>A reply that took at least this many seconds ends with a chime.</summary>

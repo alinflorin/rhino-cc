@@ -16,6 +16,8 @@ Needs the .NET SDK; no Windows tooling required. The agent CLIs (`claude`, `code
 2. Run `RhinoCCChat` to open the panel, `RhinoCCSettings` for agent paths, port and your own instructions.
 3. Each conversation has its own agent / model / effort. Conversations are saved in the .3dm.
 
+The plugin checks GitHub Releases for a newer version at startup (settings: on by default), installs it over its own files and asks you to restart Rhino. The version is shown at the bottom of the chat panel.
+
 ### Rhino under Wine on Linux (optional)
 
 Wine cannot start `claude` / `codex` with pipes, so the plugin falls back to a slower workaround. To use real pipes install the small relay service on the Linux side (needs `python3` and systemd):

@@ -30,6 +30,7 @@ namespace RhinoCC
                 var icon = System.Drawing.Icon.FromHandle(bmp.GetHicon());
                 Panels.RegisterPanel(this, typeof(Chat.ChatPanel), "RhinoCC Agent", icon);
             }
+            Chat.UpdateService.Start();
             Rhino.RhinoApp.Idle += OpenPanelOnce;
             return LoadReturnCode.Success;
         }

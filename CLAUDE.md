@@ -34,6 +34,10 @@ Owner: Alin-Florin Ciu. Don't commit or push unless asked.
 - **Compact** (menu "Conversation ▾", or by itself at 80% with Auto-compact on): a hidden turn asks the agent for notes, they become `Conversation.Summary`, the session is dropped and a "conversation compacted" note is added; the next turn starts with the notes (`Primer`).
 - **Chime**: two synthesised notes (`Chat/Chime.cs`, `SoundPlayer`) after a reply that took `ChimeSecs` or more; the fake CLI has `chime` so the agent can ring earlier (then the automatic one is skipped). Both in settings and the conversation menu.
 
+## Self-update
+
+`Core/Update/Updater.cs` + `Chat/UpdateService.cs`. 8 s after start (Release builds only; setting "Update by itself", default on) the plugin asks GitHub `releases/latest` of alinflorin/rhino-cc, compares with its own assembly version (set by `-p:Version` from the tag), downloads the `-rhino7.zip` / `-rhino8.zip` that fits `RhinoApp.Version`, and swaps the files in the plugin folder: a loaded file cannot be overwritten but can be renamed, so each goes to `*.old` (removed at the next start; failure rolls back). The panel shows `vX.Y.Z` and a "Restart Rhino for X" button; "Check for updates" is in the conversation menu (works in Debug too, and would overwrite the dev folder). Untested inside Rhino and against a real release (none published yet).
+
 ## Layout
 
 | Path | What |
@@ -49,7 +53,7 @@ Rule of thumb: logic that doesn't need Rhino goes in Core and gets a test. Only 
 
     ./build.sh                    # net7.0-windows build
     ./build.sh all                # + net48
-    dotnet test src/RhinoCC.Tests # 52 tests, none need Rhino or network
+    dotnet test src/RhinoCC.Tests # 62 tests, none need Rhino or network
     RHINOCC_LIVE=claude dotnet test src/RhinoCC.Tests --filter Live   # runs the real claude CLI against a fake Rhino (uses your account); RHINOCC_LIVE=codex likewise
 
 Builds on Linux (`EnableWindowsTargeting`). RhinoCommon versions differ per target on purpose: `net48` -> 7.13, `net7.0-windows` -> 8.17
