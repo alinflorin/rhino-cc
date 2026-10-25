@@ -20,8 +20,7 @@ namespace RhinoCC.Chat
         private readonly DropDown _agent = new DropDown();
         private readonly ComboBox _model = new ComboBox();
         private readonly DropDown _effort = new DropDown();
-        private readonly TextArea _transcript = new TextArea { ReadOnly = true, Wrap = true, Font = Fonts.Monospace(9) };
-        private readonly ImageView _picture = new ImageView { Visible = false, Height = 220 };
+        private readonly RichTextArea _transcript = new RichTextArea { ReadOnly = true, Wrap = true };
         private readonly TextArea _input = new TextArea { Wrap = true, Height = 70 };
         private readonly Button _send = new Button { Text = "Send" };
         private readonly ProgressBar _busy = new ProgressBar { Indeterminate = true, Visible = false, Height = 6 };
@@ -33,8 +32,8 @@ namespace RhinoCC.Chat
         private readonly UITimer _timer = new UITimer { Interval = 0.15 };
         private bool _dirty = true;
         private bool _synced;
+        private string _shownRtf;
         private bool _updating;
-        private string _shownImage;
 
         public ChatPanel()
         {
@@ -97,7 +96,6 @@ namespace RhinoCC.Chat
                         new Label { Text = "Effort", VerticalAlignment = VerticalAlignment.Center }, _effort)) { Spacing = new Size(4, 0) }),
                     new TableRow(_transcript) { ScaleHeight = true },
                     new TableRow(_busy),
-                    new TableRow(_picture),
                     new TableRow(_input),
                     new TableRow(new TableLayout(new TableRow(attachButton, new TableCell(_attached, true), _clear)) { Spacing = new Size(4, 0) }),
                     new TableRow(new TableLayout(new TableRow(new TableCell(_status, true), _send)) { Spacing = new Size(4, 0) }),
@@ -278,25 +276,15 @@ namespace RhinoCC.Chat
                 var idle = !_chat.Running;
                 _agent.Enabled = _effort.Enabled = _model.Enabled = _conversations.Enabled = idle;
 
-                var text = TranscriptRenderer.Render(c, Engines.Get(c.Agent).Label, _chat.Running);
-                if (_transcript.Text != text)
+                var rtf = RtfRenderer.Render(c, Engines.Get(c.Agent).Label, _chat.Running);
+                if (_shownRtf != rtf)
                 {
-                    _transcript.Text = text;
-                    try { _transcript.Selection = new Range<int>(text.Length, text.Length - 1); } catch { /* scrolling is a nicety */ }
+                    _shownRtf = rtf;
+                    _transcript.Rtf = rtf;
+                    try { var n = _transcript.Text.Length; _transcript.Selection = new Range<int>(n, n - 1); } catch { /* scrolling is a nicety */ }
                 }
                 _send.Text = _chat.Running ? "Stop" : "Send";
                 ShowStatus();
-
-                if (_shownImage != _chat.LatestImage)
-                {
-                    _shownImage = _chat.LatestImage;
-                    _picture.Visible = _shownImage != null;
-                    if (_shownImage != null)
-                    {
-                        try { _picture.Image = new Bitmap(new MemoryStream(Convert.FromBase64String(_shownImage))); }
-                        catch { _picture.Visible = false; }
-                    }
-                }
             }
             finally
             {

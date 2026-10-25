@@ -38,3 +38,24 @@ namespace RhinoCC.Tests
         }
     }
 }
+
+namespace RhinoCC.Tests
+{
+    public class RtfRendererTests
+    {
+        [Fact]
+        public void Replies_are_bold_thinking_italic_and_text_is_escaped()
+        {
+            var c = new RhinoCC.Core.Conversations.Conversation();
+            c.AddUser("a {b} \\ c");
+            var m = c.AddAssistant();
+            m.Blocks.Add(new RhinoCC.Core.Conversations.Block { Kind = "thought", Text = "hmm", Done = true });
+            m.Blocks.Add(new RhinoCC.Core.Conversations.Block { Kind = "text", Text = "Réponse", Done = true });
+            var rtf = RhinoCC.Core.Conversations.RtfRenderer.Render(c, "Claude", false);
+            Assert.StartsWith(@"{\rtf1", rtf);
+            Assert.Contains(@"a \{b\} \\ c", rtf);
+            Assert.Contains(@"\i   thinking: hmm", rtf);
+            Assert.Contains(@"\b R\u233?ponse", rtf);
+        }
+    }
+}

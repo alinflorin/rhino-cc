@@ -31,8 +31,6 @@ namespace RhinoCC.Chat
         public List<ConversationInfo> Conversations { get; private set; } = new List<ConversationInfo>();
         public bool Running { get; private set; }
         public DateTime RunStarted { get; private set; }
-        /// <summary>The last picture a tool returned (base64 PNG), shown under the transcript.</summary>
-        public string LatestImage { get; private set; }
         public string Notice { get; private set; }
 
         /// <summary>Raised on the UI thread whenever what the panel shows has changed.</summary>
@@ -41,16 +39,18 @@ namespace RhinoCC.Chat
         private ChatController()
         {
             _cli = RhinoCommands.Build();
-            _server = new McpServer(_cli, BuildInstructions);
+            _server = new McpServer(_cli, () => BuildInstructions());
         }
 
         public string McpUrl => _server.IsRunning ? _server.Url(false) : null;
 
-        public string BuildInstructions()
+        public string BuildInstructions(bool onUiThread = false)
         {
             var sb = new StringBuilder();
             var custom = AppSettings.Instructions.Trim();
             if (custom.Length > 0) sb.Append(custom).Append("\n\n");
+            var env = RhinoCommands.EnvironmentInfo(onUiThread);
+            if (!string.IsNullOrEmpty(env)) sb.Append(env).Append("\n\n");
             sb.Append(_cli.Reference(false)); // one line per command; `help COMMAND` has the options, and keeps the prompt short
             return sb.ToString();
         }
@@ -102,7 +102,6 @@ namespace RhinoCC.Chat
         {
             if (Running) return;
             Current = NewConversation();
-            LatestImage = null;
             Changed?.Invoke();
         }
 
@@ -112,7 +111,6 @@ namespace RhinoCC.Chat
             var loaded = new ConversationStore(new DocStringStore(_doc)).Load(id);
             if (loaded == null) return;
             Current = loaded;
-            LatestImage = null;
             Changed?.Invoke();
         }
 
@@ -123,7 +121,6 @@ namespace RhinoCC.Chat
             store.Delete(Current.Id);
             Conversations = store.List();
             Current = Conversations.Count > 0 ? store.Load(Conversations[0].Id) : NewConversation();
-            LatestImage = null;
             Changed?.Invoke();
         }
 
@@ -224,7 +221,7 @@ namespace RhinoCC.Chat
                 Effort = Current.Effort,
                 SessionId = Current.SessionId,
                 McpUrl = _server.Url(true),
-                Instructions = BuildInstructions(),
+                Instructions = BuildInstructions(true),
                 AllTools = AppSettings.AllTools,
             };
             if (turn.Instructions.Length > engine.InstructionLimit)
@@ -265,11 +262,6 @@ namespace RhinoCC.Chat
             if (_live == null) return;
             if (e.Kind == AgentEventKind.Failed || e.Kind == AgentEventKind.Warn) RhinoCC.Core.Log.Write($"{e.Kind}: {e.Text}");
             MessageBuilder.Apply(_live, _liveMessage, e);
-            if (e.Kind == AgentEventKind.ToolEnd && e.Parts != null)
-            {
-                var image = e.Parts.LastOrDefault(p => p.Type == "image");
-                if (image != null) LatestImage = image.Data;
-            }
             if (e.Kind == AgentEventKind.Done || e.Kind == AgentEventKind.Failed)
             {
                 foreach (var b in _liveMessage.Blocks) b.Done = true;

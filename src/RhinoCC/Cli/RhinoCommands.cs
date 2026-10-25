@@ -82,6 +82,27 @@ namespace RhinoCC.Cli
             }));
         }
 
+        /// <summary>Rhino's version and installed plugins, for the agent's instructions (read fresh for every turn).</summary>
+        public static string EnvironmentInfo(bool onUiThread)
+        {
+            try
+            {
+                Func<CliResult> read = () =>
+                {
+                    var names = Rhino.PlugIns.PlugIn.GetInstalledPlugIns().Values.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+                    var list = string.Join(", ", names);
+                    if (list.Length > 2500) list = list.Substring(0, list.LastIndexOf(',', 2500)) + ", … (`rhino plugins` lists all)";
+                    return CliResult.Ok($"## This Rhino\n\nRhino {RhinoApp.Version}\nInstalled plugins ({names.Count}): {list}");
+                };
+                // from the UI thread, going through the invoker would wait on itself
+                return (onUiThread ? read() : UiThread.Run(read)).Text;
+            }
+            catch (Exception)
+            {
+                return null; // the instructions are still useful without it
+            }
+        }
+
         // ---------------------------------------------------------------- layers
 
         private static void Layers(RhinoCli cli)

@@ -66,7 +66,7 @@ Builds on Linux (`EnableWindowsTargeting`). RhinoCommon versions differ per targ
 ## Decisions made with the owner
 
 - **UI is native Eto, not a WebView.** Rhino 7's Eto WebView is the old IE engine and McNeel won't add WebView2 to Rhino 7, so one shared codebase has to be native Eto.
-  The transcript is a read-only text area (selectable/copyable); the latest picture from `shot` shows in an image view under it.
+  The transcript is a read-only text area (selectable/copyable);.
 - **Storage inside the .3dm** (not sidecar/appdata).
 - **Command scope: only what works on both Rhinos.** Document (`status save undo redo plugins`), layers, objects (`objects info add`), editing (`move rotate scale copy delete set select`), `shot views` (`Viewing`), `cmd script log`.
   The vendored Tectopus tools (scene/pose/contacts/mass/stability, Kangaroo) were tried and **removed** because they don't compile or run on Rhino 7 (see below). A backup was kept only outside the repo (they were never committed), so recover from the Tectopus repo if needed.
