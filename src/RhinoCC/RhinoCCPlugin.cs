@@ -20,16 +20,9 @@ namespace RhinoCC
 #if DEBUG
             RhinoCC.Core.Log.Sink = m => Rhino.RhinoApp.InvokeOnUiThread(new System.Action(() => Rhino.RhinoApp.WriteLine(m)));
 #endif
-            using (var bmp = new System.Drawing.Bitmap(32, 32))
-            {
-                using (var g = System.Drawing.Graphics.FromImage(bmp))
-                {
-                    g.Clear(System.Drawing.Color.FromArgb(40, 40, 40));
-                    g.DrawString("CC", new System.Drawing.Font("Arial", 12, System.Drawing.FontStyle.Bold), System.Drawing.Brushes.White, 2, 7);
-                }
-                var icon = System.Drawing.Icon.FromHandle(bmp.GetHicon());
-                Panels.RegisterPanel(this, typeof(Chat.ChatPanel), "RhinoCC Agent", icon);
-            }
+            // the icon is an embedded .ico (made by scripts/make-icon.py): a GDI icon drawn at run time did not show in the sidebar
+            using (var s = typeof(RhinoCCPlugin).Assembly.GetManifestResourceStream("panel.ico"))
+                Panels.RegisterPanel(this, typeof(Chat.ChatPanel), "RhinoCC Agent", new System.Drawing.Icon(s, 24, 24));
             Chat.UpdateService.Start();
             Rhino.RhinoApp.Idle += OpenPanelOnce;
             return LoadReturnCode.Success;
