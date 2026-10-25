@@ -78,11 +78,19 @@ namespace RhinoCC.Chat
         // ------------------------------------------------------------ conversations of the open document
 
         /// <summary>Follows the active document: loads its conversations when it is not the one shown.</summary>
-        public void Sync()
+        public void Sync() => Sync(RhinoDoc.ActiveDoc, false);
+
+        /// <summary>
+        /// The document became active while its file was still being read (it is active but empty at first),
+        /// so once Rhino says it finished opening, its conversations have to be read again.
+        /// </summary>
+        public void Reload(RhinoDoc doc) => Sync(doc, true);
+
+        private void Sync(RhinoDoc doc, bool force)
         {
-            var doc = RhinoDoc.ActiveDoc;
-            if (doc == null || (_doc != null && _doc.RuntimeSerialNumber == doc.RuntimeSerialNumber && Current != null)) return;
+            if (doc == null || (!force && _doc != null && _doc.RuntimeSerialNumber == doc.RuntimeSerialNumber && Current != null)) return;
             if (Running) return;
+            if (force && RhinoDoc.ActiveDoc != null && RhinoDoc.ActiveDoc.RuntimeSerialNumber != doc.RuntimeSerialNumber) return;
             _doc = doc;
             var store = new ConversationStore(new DocStringStore(doc));
             Conversations = store.List();

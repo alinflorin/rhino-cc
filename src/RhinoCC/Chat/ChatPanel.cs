@@ -116,11 +116,12 @@ namespace RhinoCC.Chat
             // Rhino hosts the panel without necessarily raising Load, so the timer cannot wait for it
             _timer.Start();
             RhinoCC.Core.Log.Write("chat panel created");
-            Rhino.RhinoDoc.EndOpenDocument += OnDocChanged;
-            Rhino.RhinoDoc.CloseDocument += OnDocChanged;
+            Rhino.RhinoDoc.EndOpenDocument += (s, e) =>
+            {
+                var doc = e.Document;
+                if (!e.Merge) Application.Instance.AsyncInvoke(() => { _chat.Reload(doc); _dirty = true; });
+            };
         }
-
-        private void OnDocChanged(object sender, EventArgs e) => Application.Instance.AsyncInvoke(() => { _chat.Sync(); _dirty = true; });
 
         private void OnChanged() => _dirty = true;
 
