@@ -25,6 +25,13 @@ namespace RhinoCC.Core.Conversations
                 var m = c.Messages[i];
                 var live = running && i == c.Messages.Count - 1 && m.Role == "assistant";
                 var user = m.Role == "user";
+                if (m.Role == "note")
+                {
+                    sb.Append(@"\qc ");
+                    Run(sb, "— " + string.Join(" ", m.Blocks.Select(b => b.Text)) + " —", italic: true, color: Grey, size: 17);
+                    sb.Append(@"\par\pard\par ");
+                    continue;
+                }
                 // who is talking
                 Run(sb, (user ? "YOU" : agentLabel.ToUpperInvariant()), bold: true, color: user ? Green : Blue, size: 16);
                 sb.Append(@"\par ");

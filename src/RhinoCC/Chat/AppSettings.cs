@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using Newtonsoft.Json;
 using RhinoCC.Core.Agents;
 
 namespace RhinoCC.Chat
@@ -38,6 +41,19 @@ namespace RhinoCC.Chat
         public static int Port { get => S.GetInteger("port", DefaultPort); set => S.SetInteger("port", value); }
         public static bool OpenAtStartup { get => S.GetBool("openAtStartup", true); set => S.SetBool("openAtStartup", value); }
         public static bool AllTools { get => S.GetBool("allTools", false); set => S.SetBool("allTools", value); }
+        public static bool ChimeOn { get => S.GetBool("chimeOn", true); set => S.SetBool("chimeOn", value); }
+        /// <summary>A reply that took at least this many seconds ends with a chime.</summary>
+        public static int ChimeSecs { get => S.GetInteger("chimeSecs", 20); set => S.SetInteger("chimeSecs", Math.Max(0, value)); }
+
+        /// <summary>The plan limits an agent last reported; they only change when it answers, so they are kept between runs.</summary>
+        public static List<LimitInfo> LimitsOf(string agent)
+        {
+            try { return JsonConvert.DeserializeObject<List<LimitInfo>>(S.GetString("limits." + agent, "[]")) ?? new List<LimitInfo>(); }
+            catch { return new List<LimitInfo>(); }
+        }
+
+        public static void SetLimits(string agent, List<LimitInfo> limits) => S.SetString("limits." + agent, JsonConvert.SerializeObject(limits));
+
         public static string Instructions
         {
             get

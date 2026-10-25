@@ -11,7 +11,7 @@ namespace RhinoCC.Core.Agents
         public string Base64 { get; set; }
     }
 
-    public enum AgentEventKind { Session, Delta, Thought, Break, ToolStart, ToolEnd, Warn, Failed, Done }
+    public enum AgentEventKind { Session, Delta, Thought, Break, ToolStart, ToolEnd, Usage, Warn, Failed, Done }
 
     public sealed class ToolPart
     {
@@ -22,8 +22,28 @@ namespace RhinoCC.Core.Agents
         public string Data { get; set; }
     }
 
+    /// <summary>A share of a time window of the account's plan that is used up.</summary>
+    public sealed class LimitInfo
+    {
+        /// <summary>"5h", "weekly".</summary>
+        public string Label { get; set; }
+        /// <summary>0 to 100.</summary>
+        public double Percent { get; set; }
+        /// <summary>Unix seconds when it starts over.</summary>
+        public long? ResetsAt { get; set; }
+    }
+
+    /// <summary>What the agent reported about the size of the conversation and the account's limits; any part may be missing.</summary>
+    public sealed class UsageInfo
+    {
+        public long? ContextUsed { get; set; }
+        public long? ContextWindow { get; set; }
+        public List<LimitInfo> Limits { get; set; } = new List<LimitInfo>();
+    }
+
     public sealed class AgentEvent
     {
+        public UsageInfo Usage { get; set; }
         public AgentEventKind Kind { get; set; }
         /// <summary>Text for Delta / Thought / Warn / Failed, the session id for Session, the input for ToolStart.</summary>
         public string Text { get; set; }
@@ -93,6 +113,8 @@ namespace RhinoCC.Core.Agents
         Invocation Prepare(Turn turn);
         /// <summary>Reads one line of the agent's output.</summary>
         IReadOnlyList<AgentEvent> Parse(string line);
+        /// <summary>Events for what the agent only records on disk once a turn is over (Codex's usage); none for most.</summary>
+        IReadOnlyList<AgentEvent> AfterTurn(string sessionId);
     }
 
     /// <summary>Settings the launcher needs; the plugin fills this from its persistent settings.</summary>

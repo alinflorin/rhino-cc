@@ -26,12 +26,25 @@ namespace RhinoCC.Chat
         private Conversation _live;
         private ChatMessage _liveMessage;
         private AgentRun _run;
+        private bool _compactTurn;
+        private DateTime _lastChime = DateTime.MinValue;
+
+        /// <summary>A conversation compacts itself once the agent's memory is this full (0 to 1).</summary>
+        public const double AutoCompactAt = 0.8;
+        private const string CompactPrompt =
+            "Write a summary of this conversation for your own future reference, as notes that let you carry on without " +
+            "the earlier messages: what the user wants, every measurement and decision, what is in the Rhino model now, and what is " +
+            "still open. Do not use any tools. Plain text, under 400 words.";
 
         public Conversation Current { get; private set; }
         public List<ConversationInfo> Conversations { get; private set; } = new List<ConversationInfo>();
         public bool Running { get; private set; }
         public DateTime RunStarted { get; private set; }
         public string Notice { get; private set; }
+        /// <summary>The running turn is a compaction, not an answer.</summary>
+        public bool Compacting => Running && _compactTurn;
+        /// <summary>The account's limits as the agents last reported them (plan windows), by agent id.</summary>
+        public List<LimitInfo> Limits(string agent) => AppSettings.LimitsOf(agent).Where(l => !l.ResetsAt.HasValue || l.ResetsAt.Value * 1000 > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()).ToList();
 
         /// <summary>Raised on the UI thread whenever what the panel shows has changed.</summary>
         public event Action Changed;
@@ -143,6 +156,14 @@ namespace RhinoCC.Chat
             if (_doc != null && Current.Messages.Count > 0) Save();
         }
 
+        public void SetAutoCompact(bool on)
+        {
+            if (Current == null) return;
+            Current.AutoCompact = on;
+            if (_doc != null && Current.Messages.Count > 0) Save();
+            Changed?.Invoke();
+        }
+
         private void Save()
         {
             var c = _live ?? Current;
@@ -215,6 +236,26 @@ namespace RhinoCC.Chat
             if (Current.SessionAgent != Current.Agent) Current.SessionId = null;
             var prompt = Current.SessionId == null && Current.Messages.Count > 0 ? Primer(Current) + text : text;
 
+            var turn = BuildTurn(engine, prompt, images);
+            if (turn.Instructions.Length > engine.InstructionLimit)
+            {
+                Reject(text, images, $"The instructions are {turn.Instructions.Length} characters; {engine.Label} takes at most {engine.InstructionLimit}. Shorten your custom instructions in the settings.");
+                return;
+            }
+
+            _live = Current;
+            var userMessage = Current.AddUser(text);
+            Current.AddImages(userMessage, images);
+            _liveMessage = Current.AddAssistant();
+            _compactTurn = false;
+            Running = true;
+            RunStarted = DateTime.UtcNow;
+            Save();
+            Launch(engine, turn);
+        }
+
+        private Turn BuildTurn(IAgentEngine engine, string prompt, IList<ImageAttachment> images)
+        {
             RhinoCC.Core.Log.Write($"server: {_server.Url(true)}");
             ExchangeDirs(out var local, out var host);
             try
@@ -223,7 +264,7 @@ namespace RhinoCC.Chat
             }
             catch { /* the folder may not exist yet */ }
 
-            var turn = new Turn
+            return new Turn
             {
                 Images = images.ToList(),
                 ExchangeLocalDir = local,
@@ -236,20 +277,10 @@ namespace RhinoCC.Chat
                 Instructions = BuildInstructions(true),
                 AllTools = AppSettings.AllTools,
             };
-            if (turn.Instructions.Length > engine.InstructionLimit)
-            {
-                Reject(text, images, $"The instructions are {turn.Instructions.Length} characters; {engine.Label} takes at most {engine.InstructionLimit}. Shorten your custom instructions in the settings.");
-                return;
-            }
+        }
 
-            _live = Current;
-            var userMessage = Current.AddUser(text);
-            Current.AddImages(userMessage, images);
-            _liveMessage = Current.AddAssistant();
-            Running = true;
-            RunStarted = DateTime.UtcNow;
-            Save();
-
+        private void Launch(IAgentEngine engine, Turn turn)
+        {
             Invocation invocation;
             try
             {
@@ -267,37 +298,157 @@ namespace RhinoCC.Chat
             Changed?.Invoke();
         }
 
+        /// <summary>Replaces the agent's memory of the conversation with a summary it writes itself.</summary>
+        public void Compact()
+        {
+            Sync();
+            if (Running || Current == null || Current.SessionId == null || Current.SessionAgent != Current.Agent) return;
+            if (!EnsureServer())
+            {
+                Changed?.Invoke();
+                return;
+            }
+            Notice = null;
+            RhinoCC.Core.Log.Write("compacting '" + Current.Title + "'");
+            var engine = Engines.Get(Current.Agent);
+            try
+            {
+                var turn = BuildTurn(engine, CompactPrompt, new List<ImageAttachment>());
+                _live = Current;
+                _liveMessage = new ChatMessage { Role = "assistant" }; // not part of the conversation; its text becomes the summary
+                _compactTurn = true;
+                Running = true;
+                RunStarted = DateTime.UtcNow;
+                Launch(engine, turn);
+            }
+            catch (Exception e)
+            {
+                RhinoCC.Core.Log.Write("compact failed: " + e);
+                Notice = "Could not compact: " + e.Message;
+                Running = false;
+                _live = null;
+                _liveMessage = null;
+                Changed?.Invoke();
+            }
+        }
+
         public void Stop() => _run?.Cancel();
 
         private void OnEvent(AgentEvent e)
         {
             if (_live == null) return;
             if (e.Kind == AgentEventKind.Failed || e.Kind == AgentEventKind.Warn) RhinoCC.Core.Log.Write($"{e.Kind}: {e.Text}");
+            if (e.Kind == AgentEventKind.Usage)
+            {
+                ApplyUsage(e.Usage);
+                Changed?.Invoke();
+                return;
+            }
             MessageBuilder.Apply(_live, _liveMessage, e);
             if (e.Kind == AgentEventKind.Done || e.Kind == AgentEventKind.Failed)
             {
-                foreach (var b in _liveMessage.Blocks) b.Done = true;
+                var conversation = _live;
+                var message = _liveMessage;
+                var compact = _compactTurn;
+                foreach (var b in message.Blocks) b.Done = true;
                 Running = false;
-                Save();
+                _compactTurn = false;
                 _live = null;
                 _liveMessage = null;
                 _run = null;
+                if (compact) FinishCompact(conversation, message, e);
+                else
+                {
+                    Save();
+                    if (e.Kind == AgentEventKind.Done)
+                    {
+                        MaybeChime();
+                        // the memory is nearly full: tidy it before the next question
+                        if (Current == conversation && conversation.NeedsCompact(conversation.Agent, AutoCompactAt))
+                        {
+                            Changed?.Invoke();
+                            Compact();
+                            return;
+                        }
+                    }
+                }
             }
             Changed?.Invoke();
+        }
+
+        private void FinishCompact(Conversation c, ChatMessage message, AgentEvent e)
+        {
+            var summary = string.Join("\n", message.Blocks.Where(b => b.Kind == "text").Select(b => b.Text)).Trim();
+            if (e.Kind == AgentEventKind.Failed || summary.Length == 0)
+            {
+                if (e.Kind == AgentEventKind.Failed && e.Text != "Stopped.") Notice = "Could not compact: " + e.Text;
+                return;
+            }
+            c.Summary = summary;
+            c.SessionId = null;
+            c.SessionAgent = null;
+            c.Context = null;
+            c.AddNote("conversation compacted");
+            Save();
+        }
+
+        private void ApplyUsage(UsageInfo u)
+        {
+            if (u == null) return;
+            if (u.Limits.Count > 0) AppSettings.SetLimits(_live?.Agent ?? Current.Agent, u.Limits);
+            // the size of a compaction turn says nothing about the conversation that is about to be replaced
+            if (_compactTurn || _live == null) return;
+            if (u.ContextUsed != null || u.ContextWindow != null)
+            {
+                var old = _live.Context != null && _live.Context.Agent == _live.Agent ? _live.Context : null;
+                var window = u.ContextWindow ?? old?.Window ?? 0;
+                var used = u.ContextUsed ?? old?.Used ?? 0;
+                if (window > 0) _live.Context = new ContextUse { Agent = _live.Agent, Used = used, Window = window };
+            }
+        }
+
+        // ------------------------------------------------------------ chime
+
+        /// <summary>A reply that took a while ends with a chime, unless the agent already asked for one.</summary>
+        private void MaybeChime()
+        {
+            if (!AppSettings.ChimeOn || _lastChime >= RunStarted) return;
+            if ((DateTime.UtcNow - RunStarted).TotalSeconds < AppSettings.ChimeSecs) return;
+            Chime.Play();
+            _lastChime = DateTime.UtcNow;
+        }
+
+        /// <summary>The agent's own `chime` command; returns false when the sound is off.</summary>
+        public bool ChimeNow()
+        {
+            if (!AppSettings.ChimeOn) return false;
+            Chime.Play();
+            _lastChime = DateTime.UtcNow;
+            return true;
         }
 
         /// <summary>When a conversation moves to another agent, it starts without memory; give it what was said.</summary>
         private static string Primer(Conversation c)
         {
-            var sb = new StringBuilder("[Earlier in this conversation, with another assistant:\n");
-            foreach (var m in c.Messages)
+            var sb = new StringBuilder();
+            var messages = c.Messages.Where(m => m.Role != "note").ToList();
+            if (!string.IsNullOrEmpty(c.Summary))
+            {
+                sb.Append("[Notes you wrote earlier in this conversation, to carry on without the first messages:\n").Append(c.Summary).Append("]\n\n");
+                // only what was said after the compaction is not in the notes
+                var lastNote = c.Messages.FindLastIndex(m => m.Role == "note");
+                messages = c.Messages.Skip(lastNote + 1).Where(m => m.Role != "note").ToList();
+                if (messages.Count == 0) return sb.Append("Now the user says:\n").ToString();
+            }
+            sb.Append("[Earlier in this conversation, with another assistant:\n");
+            foreach (var m in messages)
             {
                 var text = string.Join("\n", m.Blocks.Where(b => b.Kind == "text").Select(b => b.Text)).Trim();
                 if (text.Length == 0) continue;
                 sb.Append(m.Role == "user" ? "User: " : "Assistant: ").Append(text).Append('\n');
             }
             var s = sb.ToString();
-            if (s.Length > 6000) s = "[Earlier in this conversation, with another assistant (shortened):\n…" + s.Substring(s.Length - 6000);
+            if (s.Length > 6000) s = s.Substring(0, Math.Min(s.IndexOf("[Earlier", StringComparison.Ordinal), s.Length)) + "[Earlier in this conversation (shortened):\n…" + s.Substring(s.Length - 6000);
             return s + "]\n\nNow the user says:\n";
         }
     }

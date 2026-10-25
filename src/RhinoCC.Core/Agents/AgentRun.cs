@@ -41,12 +41,17 @@ namespace RhinoCC.Core.Agents
         private void Run()
         {
             var finished = false;
+            string session = null;
             void Raise(AgentEvent e)
             {
+                if (e.Kind == AgentEventKind.Session) session = e.Text;
                 if (e.Kind == AgentEventKind.Done || e.Kind == AgentEventKind.Failed)
                 {
                     if (finished) return;
                     finished = true;
+                    // what the agent only writes to disk at the end of a turn
+                    if (e.Kind == AgentEventKind.Done)
+                        foreach (var extra in _engine.AfterTurn(session)) Event?.Invoke(extra);
                 }
                 Event?.Invoke(e);
             }

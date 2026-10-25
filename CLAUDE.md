@@ -28,6 +28,12 @@ Owner: Alin-Florin Ciu. Don't commit or push unless asked.
   and design rules, adapted from frederic-coultier's `fc-cli.md` with the OpenSCAD / knowledge-base / supports / FC-specific parts removed. The user can override them in the settings;
   a stored copy of the old stub default is migrated automatically. The generated command reference is appended after them.
 
+## Compaction, chime, usage
+
+- **Usage bars** (context, 5h, weekly) come from the agents: Claude's `rate_limit_event` / `assistant.usage` / `result.modelUsage`; Codex's `token_count` in its session record under `$CODEX_HOME` or `~/.codex/sessions` (read after the turn by `AfterTurn`; under Wine through `Z:` + `$HOME`). Plan limits are kept in the settings per agent; the context size is stored in the conversation.
+- **Compact** (menu "Conversation ▾", or by itself at 80% with Auto-compact on): a hidden turn asks the agent for notes, they become `Conversation.Summary`, the session is dropped and a "conversation compacted" note is added; the next turn starts with the notes (`Primer`).
+- **Chime**: two synthesised notes (`Chat/Chime.cs`, `SoundPlayer`) after a reply that took `ChimeSecs` or more; the fake CLI has `chime` so the agent can ring earlier (then the automatic one is skipped). Both in settings and the conversation menu.
+
 ## Layout
 
 | Path | What |
@@ -43,7 +49,7 @@ Rule of thumb: logic that doesn't need Rhino goes in Core and gets a test. Only 
 
     ./build.sh                    # net7.0-windows build
     ./build.sh all                # + net48
-    dotnet test src/RhinoCC.Tests # 33 tests, none need Rhino or network
+    dotnet test src/RhinoCC.Tests # 47 tests, none need Rhino or network
     RHINOCC_LIVE=claude dotnet test src/RhinoCC.Tests --filter Live   # runs the real claude CLI against a fake Rhino (uses your account); RHINOCC_LIVE=codex likewise
 
 Builds on Linux (`EnableWindowsTargeting`). RhinoCommon versions differ per target on purpose: `net48` -> 7.13, `net7.0-windows` -> 8.17

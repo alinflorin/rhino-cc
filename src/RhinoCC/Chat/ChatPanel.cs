@@ -33,6 +33,9 @@ namespace RhinoCC.Chat
         private bool _dirty = true;
         private string _shownRtf;
         private bool _updating;
+        private readonly Meter _contextMeter = new Meter("Context");
+        private readonly Meter[] _limitMeters = { new Meter(""), new Meter(""), new Meter("") };
+        private readonly StackLayout _meters;
 
         public ChatPanel()
         {
@@ -40,15 +43,11 @@ namespace RhinoCC.Chat
             MinimumSize = new Size(380, 520);
             Size = new Size(460, 700);
             var newButton = new Button { Text = "New" };
-            var deleteButton = new Button { Text = "Delete" };
-            var settingsButton = new Button { Text = "Settings…" };
+            var menuButton = new Button { Text = "Conversation ▾" };
             newButton.Click += (s, e) => _chat.New();
-            deleteButton.Click += (s, e) =>
-            {
-                if (MessageBox.Show("Delete this conversation from the model?", "RhinoCC", MessageBoxButtons.YesNo, MessageBoxType.Question) == DialogResult.Yes)
-                    _chat.DeleteCurrent();
-            };
-            settingsButton.Click += (s, e) => new SettingsDialog().ShowModal(this);
+            menuButton.Click += (s, e) => ShowMenu(menuButton);
+            _meters = new StackLayout { Orientation = Orientation.Horizontal, Spacing = 14, Visible = false };
+            foreach (var m in new[] { _contextMeter }.Concat(_limitMeters)) _meters.Items.Add(m.Row);
 
             _agent.Items.AddRange(Engines.All.Select(en => new ListItem { Text = en.Label, Key = en.Id }));
             _agent.SelectedIndexChanged += (s, e) => { if (!_updating) { FillEfforts(); Configure(); } };
@@ -89,10 +88,11 @@ namespace RhinoCC.Chat
                 Spacing = new Size(4, 4),
                 Rows =
                 {
-                    new TableRow(new TableLayout(new TableRow(new TableCell(_conversations, true), newButton, deleteButton, settingsButton) { }) { Spacing = new Size(4, 0) }),
+                    new TableRow(new TableLayout(new TableRow(new TableCell(_conversations, true), newButton, menuButton)) { Spacing = new Size(4, 0) }),
                     new TableRow(new TableLayout(new TableRow(new Label { Text = "Agent", VerticalAlignment = VerticalAlignment.Center }, _agent,
                         new Label { Text = "Model", VerticalAlignment = VerticalAlignment.Center }, new TableCell(_model, true),
                         new Label { Text = "Effort", VerticalAlignment = VerticalAlignment.Center }, _effort)) { Spacing = new Size(4, 0) }),
+                    new TableRow(_meters),
                     new TableRow(_transcript) { ScaleHeight = true },
                     new TableRow(_busy),
                     new TableRow(_input),
@@ -124,6 +124,81 @@ namespace RhinoCC.Chat
         }
 
         private void OnChanged() => _dirty = true;
+
+        /// <summary>What belongs to the conversation on show, and the sound; Eto has no menu bar in a panel, so this is a pop-up.</summary>
+        private void ShowMenu(Control anchor)
+        {
+            var c = _chat.Current;
+            if (c == null) return;
+            var idle = !_chat.Running;
+            var auto = new CheckMenuItem { Text = $"Compact by itself at {(int)(ChatController.AutoCompactAt * 100)}% memory", Checked = c.AutoCompact, Enabled = true };
+            auto.CheckedChanged += (s, e) => _chat.SetAutoCompact(auto.Checked);
+            var chime = new CheckMenuItem { Text = $"Sound when a reply takes {AppSettings.ChimeSecs} s or more", Checked = AppSettings.ChimeOn };
+            chime.CheckedChanged += (s, e) => AppSettings.ChimeOn = chime.Checked;
+            var compact = new ButtonMenuItem { Text = "Compact now (summarise the memory)", Enabled = idle && c.SessionId != null && c.SessionAgent == c.Agent };
+            compact.Click += (s, e) => _chat.Compact();
+            var delete = new ButtonMenuItem { Text = "Delete this conversation…", Enabled = idle };
+            delete.Click += (s, e) =>
+            {
+                if (MessageBox.Show("Delete this conversation from the model?", "RhinoCC", MessageBoxButtons.YesNo, MessageBoxType.Question) == DialogResult.Yes)
+                    _chat.DeleteCurrent();
+            };
+            var settings = new ButtonMenuItem { Text = "Settings…" };
+            settings.Click += (s, e) => new SettingsDialog().ShowModal(this);
+            var menu = new ContextMenu();
+            menu.Items.Add(auto);
+            menu.Items.Add(chime);
+            menu.Items.Add(new SeparatorMenuItem());
+            menu.Items.Add(compact);
+            menu.Items.Add(delete);
+            menu.Items.Add(new SeparatorMenuItem());
+            menu.Items.Add(settings);
+            menu.Show(anchor);
+        }
+
+        private void ShowMeters(Conversation c)
+        {
+            var ctx = c.Context != null && c.Context.Agent == c.Agent && c.Context.Window > 0 ? c.Context : null;
+            if (ctx != null) _contextMeter.Set((double)ctx.Used / ctx.Window * 100, $"The agent's memory for this conversation: {ctx.Used:N0} of {ctx.Window:N0} tokens");
+            else _contextMeter.Hide();
+            var limits = _chat.Limits(c.Agent);
+            for (var i = 0; i < _limitMeters.Length; i++)
+            {
+                if (i >= limits.Count) { _limitMeters[i].Hide(); continue; }
+                var l = limits[i];
+                var when = l.ResetsAt.HasValue ? "starts over " + DateTimeOffset.FromUnixTimeSeconds(l.ResetsAt.Value).LocalDateTime.ToString("g") : "the share of your plan used";
+                _limitMeters[i].Set(l.Percent, when, l.Label == "5h" ? "5 h" : l.Label == "weekly" ? "Week" : l.Label);
+            }
+            _meters.Visible = ctx != null || limits.Count > 0;
+        }
+
+        /// <summary>A small bar with a number: how much of something is used up.</summary>
+        private sealed class Meter
+        {
+            private readonly Label _name = new Label { VerticalAlignment = VerticalAlignment.Center, TextColor = Colors.Gray };
+            private readonly ProgressBar _bar = new ProgressBar { MinValue = 0, MaxValue = 100, Width = 56, Height = 8 };
+            private readonly Label _percent = new Label { VerticalAlignment = VerticalAlignment.Center, TextColor = Colors.Gray };
+            public Control Row { get; }
+
+            public Meter(string name)
+            {
+                _name.Text = name;
+                Row = new StackLayout { Orientation = Orientation.Horizontal, Spacing = 4, VerticalContentAlignment = VerticalAlignment.Center, Visible = false, Items = { _name, _bar, _percent } };
+            }
+
+            public void Set(double percent, string tip, string name = null)
+            {
+                var p = Math.Max(0, Math.Min(100, percent));
+                if (name != null) _name.Text = name;
+                _bar.Value = (int)Math.Round(p);
+                _percent.Text = Math.Round(percent) + "%";
+                _percent.TextColor = p >= 95 ? Colors.OrangeRed : p >= 80 ? Colors.DarkGoldenrod : Colors.Gray;
+                Row.ToolTip = tip;
+                Row.Visible = true;
+            }
+
+            public void Hide() => Row.Visible = false;
+        }
 
         private void SendOrStop()
         {
@@ -238,7 +313,9 @@ namespace RhinoCC.Chat
             if (_chat.Running)
             {
                 var secs = (int)(DateTime.UtcNow - _chat.RunStarted).TotalSeconds;
-                _status.Text = $"{Engines.Get(_chat.Current.Agent).Label} is working… {secs} s  (Stop to cancel)";
+                _status.Text = _chat.Compacting
+                    ? $"{Engines.Get(_chat.Current.Agent).Label} is summarising the conversation… {secs} s  (Stop to cancel)"
+                    : $"{Engines.Get(_chat.Current.Agent).Label} is working… {secs} s  (Stop to cancel)";
             }
             else _status.Text = _chat.Notice ?? "Enter to send, Shift+Enter for a new line";
             _status.TextColor = _chat.Notice != null ? Colors.OrangeRed : Colors.Gray;
@@ -276,6 +353,7 @@ namespace RhinoCC.Chat
                 _effort.SelectedKey = c.Effort ?? DefaultItem;
                 if (_model.Text != (c.Model ?? "")) _model.Text = c.Model ?? "";
                 var idle = !_chat.Running;
+                ShowMeters(c);
                 _agent.Enabled = _effort.Enabled = _model.Enabled = _conversations.Enabled = idle;
 
                 var rtf = RtfRenderer.Render(c, Engines.Get(c.Agent).Label, _chat.Running);

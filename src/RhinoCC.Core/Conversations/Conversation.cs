@@ -20,11 +20,19 @@ namespace RhinoCC.Core.Conversations
 
     public sealed class ChatMessage
     {
-        /// <summary>"user" or "assistant".</summary>
+        /// <summary>"user", "assistant" or "note" (the app speaking).</summary>
         public string Role { get; set; }
         public List<Block> Blocks { get; set; } = new List<Block>();
         /// <summary>Set when the turn failed or was stopped.</summary>
         public string Failure { get; set; }
+    }
+
+    /// <summary>How much of the agent's memory a conversation takes up, as of its last answer.</summary>
+    public sealed class ContextUse
+    {
+        public string Agent { get; set; }
+        public long Used { get; set; }
+        public long Window { get; set; }
     }
 
     public sealed class Conversation
@@ -39,6 +47,11 @@ namespace RhinoCC.Core.Conversations
         /// <summary>Which agent <see cref="SessionId"/> belongs to; another agent cannot continue it.</summary>
         public string SessionAgent { get; set; }
         public DateTime Updated { get; set; } = DateTime.UtcNow;
+        public ContextUse Context { get; set; }
+        /// <summary>What the agent wrote down when the conversation was compacted; it stands in for the earlier messages.</summary>
+        public string Summary { get; set; }
+        /// <summary>Compact by itself when the agent's memory fills up.</summary>
+        public bool AutoCompact { get; set; }
         public List<ChatMessage> Messages { get; set; } = new List<ChatMessage>();
 
         public ChatMessage AddUser(string text)
@@ -63,6 +76,19 @@ namespace RhinoCC.Core.Conversations
                     Output = new List<ToolPart> { new ToolPart { Type = "image", Mime = img.Mime, Data = img.Base64 } },
                 });
         }
+
+        /// <summary>The app speaking, e.g. "conversation compacted".</summary>
+        public void AddNote(string text)
+        {
+            var m = new ChatMessage { Role = "note" };
+            m.Blocks.Add(new Block { Kind = "text", Text = text, Done = true });
+            Messages.Add(m);
+            Updated = DateTime.UtcNow;
+        }
+
+        /// <summary>Whether the memory of <paramref name="agent"/> is used up to <paramref name="at"/> (0 to 1).</summary>
+        public bool NeedsCompact(string agent, double at) =>
+            AutoCompact && Context != null && Context.Agent == agent && Context.Window > 0 && (double)Context.Used / Context.Window >= at;
 
         public ChatMessage AddAssistant()
         {

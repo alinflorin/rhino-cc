@@ -39,6 +39,12 @@ namespace RhinoCC.Chat
             var shell = new TextBox { Text = AppSettings.HostShell, Enabled = ProcessHost.IsWine };
             var port = new NumericStepper { MinValue = 1024, MaxValue = 65535, Value = AppSettings.Port };
             var openAtStartup = new CheckBox { Text = "Open the chat panel when Rhino starts", Checked = AppSettings.OpenAtStartup };
+            var chimeOn = new CheckBox { Text = "Play a chime when a reply takes long", Checked = AppSettings.ChimeOn };
+            var chimeSecs = new NumericStepper { MinValue = 0, MaxValue = 3600, Value = AppSettings.ChimeSecs, Width = 70 };
+            var chimePlay = new Button { Text = "Play" };
+            chimePlay.Click += (s, e) => Chime.Play();
+            chimeOn.CheckedChanged += (s, e) => chimeSecs.Enabled = chimeOn.Checked == true;
+            chimeSecs.Enabled = chimeOn.Checked == true;
             var check = new Button { Text = "Check agents" };
             var checkResult = new Label { TextColor = Colors.Gray, Text = "" };
             check.Click += (s, e) =>
@@ -70,6 +76,8 @@ namespace RhinoCC.Chat
                 AppSettings.CodexPath = codex.Text.Trim().Length > 0 ? codex.Text.Trim() : "codex";
                 AppSettings.HostShell = shell.Text.Trim().Length > 0 ? shell.Text.Trim() : "/bin/sh";
                 AppSettings.Port = (int)port.Value;
+                AppSettings.ChimeOn = chimeOn.Checked == true;
+                AppSettings.ChimeSecs = (int)chimeSecs.Value;
                 AppSettings.AllTools = allTools.Checked == true;
                 AppSettings.OpenAtStartup = openAtStartup.Checked == true;
                 AppSettings.Instructions = instructions.Text;
@@ -95,6 +103,7 @@ namespace RhinoCC.Chat
                     new TableRow(Row("Host shell (Wine only)", shell)),
                     new TableRow(Row("Agent server port (loopback)", port)),
                     new TableRow(new TableLayout(new TableRow(check, new TableCell(checkResult, true))) { Spacing = new Size(6, 0) }),
+                    new TableRow(new TableLayout(new TableRow(chimeOn, new Label { Text = "after (seconds)", VerticalAlignment = VerticalAlignment.Center }, chimeSecs, chimePlay)) { Spacing = new Size(6, 0) }),
                     new TableRow(allTools),
                     new TableRow(openAtStartup),
                     new TableRow(new Label { Text = "Your instructions for the agent (sent before the command reference):" }),

@@ -97,7 +97,27 @@ namespace RhinoCC.Core.Agents
                     else if (et == "content_block_delta" && (string)delta?["type"] == "text_delta" && delta["text"] != null)
                         events.Add(AgentEvent.Of(AgentEventKind.Delta, (string)delta["text"]));
                     break;
+                case "rate_limit_event":
+                    var windows = v["rate_limit_info"]?["unifiedWindows"];
+                    var usage = new UsageInfo();
+                    foreach (var pair in new[] { new[] { "five_hour", "5h" }, new[] { "seven_day", "weekly" } })
+                    {
+                        var w = windows?[pair[0]];
+                        if (w?["utilization"] == null) continue;
+                        usage.Limits.Add(new LimitInfo { Label = pair[1], Percent = (double)w["utilization"] * 100, ResetsAt = (long?)w["resetsAt"] });
+                    }
+                    if (usage.Limits.Count > 0) events.Add(new AgentEvent { Kind = AgentEventKind.Usage, Usage = usage });
+                    break;
                 case "assistant":
+                    if (v["message"]?["usage"] is JObject u)
+                    {
+                        long N(string k) => (long?)u[k] ?? 0;
+                        events.Add(new AgentEvent
+                        {
+                            Kind = AgentEventKind.Usage,
+                            Usage = new UsageInfo { ContextUsed = N("input_tokens") + N("cache_read_input_tokens") + N("cache_creation_input_tokens") + N("output_tokens") },
+                        });
+                    }
                     if (v["message"]?["content"] is JArray blocks)
                         foreach (var b in blocks)
                         {
@@ -124,11 +144,21 @@ namespace RhinoCC.Core.Agents
                     break;
                 case "result":
                     if ((bool?)v["is_error"] == true) events.Add(AgentEvent.Of(AgentEventKind.Failed, (string)v["result"] ?? "the agent failed"));
-                    else events.Add(AgentEvent.Of(AgentEventKind.Done));
+                    else
+                    {
+                        long? window = null;
+                        if (v["modelUsage"] is JObject mu)
+                            foreach (var m in mu.Properties())
+                                if (window == null) window = (long?)m.Value["contextWindow"];
+                        if (window != null) events.Add(new AgentEvent { Kind = AgentEventKind.Usage, Usage = new UsageInfo { ContextWindow = window } });
+                        events.Add(AgentEvent.Of(AgentEventKind.Done));
+                    }
                     break;
             }
             return events;
         }
+
+        public IReadOnlyList<AgentEvent> AfterTurn(string sessionId) => new AgentEvent[0];
 
         /// <summary>The command line of an exec_rhino call, or the raw arguments of any other tool.</summary>
         internal static string InputText(JToken input)

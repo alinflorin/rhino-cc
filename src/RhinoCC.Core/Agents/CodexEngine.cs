@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -120,6 +122,79 @@ namespace RhinoCC.Core.Agents
                     break;
             }
             return events;
+        }
+
+        /// <summary>Codex keeps the size of the conversation and the account's limits only in its record of the session.</summary>
+        public IReadOnlyList<AgentEvent> AfterTurn(string sessionId)
+        {
+            var events = new List<AgentEvent>();
+            try
+            {
+                var file = string.IsNullOrEmpty(sessionId) ? null : FindRollout(Path.Combine(CodexHome(), "sessions"), sessionId);
+                if (file == null) return events;
+                string text;
+                using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var r = new StreamReader(fs, System.Text.Encoding.UTF8)) text = r.ReadToEnd();
+                var usage = ReadUsage(text);
+                if (usage != null) events.Add(new AgentEvent { Kind = AgentEventKind.Usage, Usage = usage });
+            }
+            catch (System.Exception e) { Log.Write("codex usage: " + e.Message); }
+            return events;
+        }
+
+        private static string CodexHome()
+        {
+            var home = System.Environment.GetEnvironmentVariable("CODEX_HOME");
+            if (!string.IsNullOrEmpty(home)) return ProcessHost.IsWine && home.StartsWith("/") ? ProcessHost.ToWinePath(home) : home;
+            // under Wine HOME is the Linux home, which the Z: drive reaches
+            var unix = System.Environment.GetEnvironmentVariable("HOME");
+            if (ProcessHost.IsWine && !string.IsNullOrEmpty(unix) && unix.StartsWith("/")) return ProcessHost.ToWinePath(unix + "/.codex");
+            return Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile), ".codex");
+        }
+
+        /// <summary>Codex's record of a session is <c>rollout-&lt;time&gt;-&lt;session&gt;.jsonl</c> in dated folders.</summary>
+        internal static string FindRollout(string dir, string session)
+        {
+            if (!Directory.Exists(dir)) return null;
+            foreach (var f in Directory.GetFiles(dir, "rollout-*" + session + ".jsonl")) return f;
+            foreach (var d in Directory.GetDirectories(dir).OrderByDescending(x => x))
+            {
+                var found = FindRollout(d, session);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        /// <summary>The last <c>token_count</c> record: the size of the conversation and the account's limits.</summary>
+        public static UsageInfo ReadUsage(string record)
+        {
+            foreach (var line in record.Split('\n').Reverse())
+            {
+                if (!line.Contains("\"token_count\"")) continue;
+                JObject v;
+                try { v = JObject.Parse(line); }
+                catch { continue; }
+                var p = v["payload"];
+                if (!(p?["info"] is JObject info)) continue;
+                var usage = new UsageInfo
+                {
+                    ContextUsed = (long?)info["last_token_usage"]?["total_tokens"],
+                    ContextWindow = (long?)info["model_context_window"],
+                };
+                foreach (var w in new[] { p["rate_limits"]?["primary"], p["rate_limits"]?["secondary"] })
+                {
+                    if (w?["used_percent"] == null) continue;
+                    var minutes = (long?)w["window_minutes"] ?? 0;
+                    usage.Limits.Add(new LimitInfo
+                    {
+                        Label = minutes == 300 ? "5h" : minutes == 10080 ? "weekly" : minutes > 0 && minutes % 60 == 0 ? minutes / 60 + "h" : minutes + "m",
+                        Percent = (double)w["used_percent"],
+                        ResetsAt = (long?)w["resets_at"],
+                    });
+                }
+                return usage;
+            }
+            return null;
         }
 
         private static List<ToolPart> Parts(JToken content)
