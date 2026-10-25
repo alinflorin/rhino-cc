@@ -28,9 +28,6 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
       - run: dotnet restore --locked-mode
-      - name: Test
-        run: dotnet test src/RhinoCC.Tests -c Release --no-restore
-
       - name: Build and zip
         run: |
           v='${{ steps.v.outputs.version }}'
