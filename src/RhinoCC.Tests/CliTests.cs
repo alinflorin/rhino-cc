@@ -138,9 +138,9 @@ namespace RhinoCC.Tests
         [Fact]
         public void DefaultInstructionsLeaveRoomForTheReference()
         {
-            // both engines take 29,000 characters; the generated reference (~4.5K), the Rhino info (<=2.7K) and custom text come on top
+            // both engines take 29,000 characters; the generated reference (~4.5K), the Rhino info (<=0.9K) and custom text come on top
             var path = Path.Combine(Path.GetDirectoryName(ThisFile()), "..", "RhinoCC", "Chat", "DefaultInstructions.md");
-            Assert.True(File.ReadAllText(path).Length <= 20000, "DefaultInstructions.md is too long for the 29,000 character limit");
+            Assert.True(File.ReadAllText(path).Length <= 10000, "DefaultInstructions.md is too long for the 29,000 character limit");
         }
 
         private static string ThisFile([CallerFilePath] string path = "") => path;

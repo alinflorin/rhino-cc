@@ -98,7 +98,7 @@ namespace RhinoCC.Cli
                 {
                     var names = Rhino.PlugIns.PlugIn.GetInstalledPlugIns().Values.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
                     var list = string.Join(", ", names);
-                    if (list.Length > 2500) list = list.Substring(0, list.LastIndexOf(',', 2500)) + ", … (`rhino plugins` lists all)";
+                    if (list.Length > 600) list = list.Substring(0, list.LastIndexOf(',', 600)) + ", … (`plugins` lists all)";
                     return CliResult.Ok($"## This Rhino\n\nRhino {RhinoApp.Version}\nInstalled plugins ({names.Count}): {list}");
                 };
                 // from the UI thread, going through the invoker would wait on itself
