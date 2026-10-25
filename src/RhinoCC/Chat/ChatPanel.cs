@@ -32,6 +32,7 @@ namespace RhinoCC.Chat
         private const int MaxImageBytes = 5 * 1024 * 1024;
         private readonly UITimer _timer = new UITimer { Interval = 0.15 };
         private bool _dirty = true;
+        private bool _synced;
         private bool _updating;
         private string _shownImage;
 
@@ -108,13 +109,15 @@ namespace RhinoCC.Chat
             {
                 try
                 {
+                    if (!_synced) { _synced = true; _chat.Sync(); _dirty = true; }
                     if (_dirty) Refresh();
                     else if (_chat.Running) ShowStatus();
                 }
-                catch (Exception ex) { _status.Text = "Panel error: " + ex.Message; _status.TextColor = Colors.OrangeRed; }
+                catch (Exception ex) { RhinoCC.Core.Log.Write("panel refresh failed: " + ex); _status.Text = "Panel error: " + ex.Message; _status.TextColor = Colors.OrangeRed; }
             };
-            Load += (s, e) => { _chat.Sync(); _timer.Start(); _dirty = true; };
-            UnLoad += (s, e) => { _timer.Stop(); _chat.Changed -= OnChanged; };
+            // Rhino hosts the panel without necessarily raising Load, so the timer cannot wait for it
+            _timer.Start();
+            RhinoCC.Core.Log.Write("chat panel created");
             Rhino.RhinoDoc.EndOpenDocument += OnDocChanged;
             Rhino.RhinoDoc.CloseDocument += OnDocChanged;
         }

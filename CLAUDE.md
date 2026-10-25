@@ -52,12 +52,13 @@ Builds on Linux (`EnableWindowsTargeting`). RhinoCommon versions differ per targ
 ## Environment: Rhino 8 in Wine on Linux (the owner's setup)
 
 - Load via `PlugInManager` > Install: `Z:\home\alin\rhino-cc\src\RhinoCC\bin\Debug\net7.0-windows\RhinoCC.rhp` (`build.sh` prints it). Close Rhino before rebuilding (the `.rhp` is locked).
-- `claude` and `codex` are installed on the **Linux host**. Under Wine (detected via `ntdll!wine_get_version`, `ProcessHost.IsWine`) the plugin starts
-  `Z:\bin\sh -lc 'cd /tmp && exec "$0" "$@"' <program> <args>`, so Wine launches the Unix shell, which gives the CLI the host login PATH.
-  If `claude` isn't on that PATH, set the full path in the settings. Prompts go over stdin.
+- `claude` and `codex` are installed on the **Linux host**. The owner's Rhino runs in the `io.github.jabern.RhinoOnLinux` Flatpak (`filesystems=home`, no `flatpak-spawn --host`), so the CLIs run inside that sandbox: `~/.local/bin/claude` works there.
+  Under Wine (`ntdll!wine_get_version`, `ProcessHost.IsWine`) **CreateProcess cannot start a Unix program with piped stdio** (.NET got a process with no handle, no output, no exit code), but `cmd /c start /unix` can.
+  So `WineJob` writes a per-turn folder `/tmp/rhinocc/job-<id>` (`Z:\tmp\rhinocc\...`) with `in` (stdin), `run.sh` (runs `<HostShell> -lc 'exec "$0" "$@"' <program> <args>` with stdio redirected to `in`/`out`/`err`, then writes `code`), and `kill.sh`;
+  starts it with `start /unix /bin/sh run.sh`, and follows `out`/`err` by polling. The folder is deleted after the turn. Instructions are therefore inside `run.sh` for the length of a turn (they used to be command-line only).
+  If `claude` isn't on the login PATH, set the full path in the settings.
   Things that can't ride on a command line go through an **exchange folder** (`Turn.ExchangeLocalDir` / `ExchangeHostDir`): `Z:\tmp\rhinocc` as the plugin sees it, `/tmp/rhinocc` as the CLI does
-  (on native Windows both are `%TEMP%\rhinocc`). Only Codex's pictures (`-i`) go there; **instructions are never files** (owner's decision), they are command-line arguments for both agents.
-  Instructions share the Windows 32K command line (Claude: `--append-system-prompt`, Codex: `-c developer_instructions=...`), so both engines cap them at 29,000 characters (`InstructionLimit`);
+  (on native Windows both are `%TEMP%\rhinocc`). Only Codex's pictures (`-i`) go there. Instructions are command-line arguments for both agents (Claude: `--append-system-prompt`, Codex: `-c developer_instructions=...`); on native Windows they share the 32K command line, so both engines cap them at 29,000 characters (`InstructionLimit`);
   the default prompt plus the generated reference is kept well under that, so keep `DefaultInstructions.md` short.
 - Only the .NET Core side (Rhino 8) can be debugged here; see `.vscode/launch.json` (netcoredbg under Wine, attach on 4711, `sourceFileMap` Z:\home -> /home).
 - The MCP server is a hand-rolled `TcpListener` HTTP server, deliberately not `HttpListener` (http.sys is shaky in Wine).

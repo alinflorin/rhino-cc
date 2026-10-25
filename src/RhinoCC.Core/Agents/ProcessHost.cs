@@ -85,6 +85,24 @@ namespace RhinoCC.Core.Agents
             inv.Args.Add("--version");
             try
             {
+                if (IsWine)
+                {
+                    var job = new WineJob(inv, settings);
+                    var lines = new List<string>();
+                    string code = null;
+                    var task = System.Threading.Tasks.Task.Run(() => code = job.Run(l => { lock (lines) lines.Add(l); }, l => { lock (lines) lines.Add(l); }));
+                    if (!task.Wait(timeoutMs))
+                    {
+                        job.Cancel();
+                        return new KeyValuePair<bool, string>(false, "timed out");
+                    }
+                    string text;
+                    lock (lines) text = string.Join("\n", lines).Trim();
+                    var head = text.Split('\n')[0].Trim();
+                    return code == "0" && head.Length > 0
+                        ? new KeyValuePair<bool, string>(true, head)
+                        : new KeyValuePair<bool, string>(false, head.Length > 0 ? head : "exit code " + (code ?? "unknown"));
+                }
                 using (var p = Process.Start(Build(inv, settings)))
                 {
                     p.StandardInput.Close();

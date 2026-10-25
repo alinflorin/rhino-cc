@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace RhinoCC.Core.Agents
@@ -11,6 +12,9 @@ namespace RhinoCC.Core.Agents
         private readonly IAgentEngine _engine;
         private readonly ProcessStartInfo _psi;
         private readonly string _stdin;
+        private readonly Invocation _invocation;
+        private readonly AgentSettings _settings;
+        private WineJob _job;
         private Process _process;
         private volatile bool _cancelled;
 
@@ -19,11 +23,11 @@ namespace RhinoCC.Core.Agents
         public AgentRun(IAgentEngine engine, Invocation invocation, AgentSettings settings)
         {
             _engine = engine;
+            _invocation = invocation;
+            _settings = settings;
             _psi = ProcessHost.Build(invocation, settings);
             _stdin = invocation.Stdin ?? "";
         }
-
-        private static string Trim(string s) => s != null && s.Length > 600 ? s.Substring(0, 600) + $"… ({s.Length} chars)" : s;
 
         public Task Start() => Task.Run(Run);
 
@@ -31,6 +35,7 @@ namespace RhinoCC.Core.Agents
         {
             _cancelled = true;
             try { _process?.Kill(); } catch { /* already gone */ }
+            _job?.Cancel();
         }
 
         private void Run()
@@ -47,47 +52,31 @@ namespace RhinoCC.Core.Agents
             }
 
             var stderr = new StringBuilder();
-            var stderrDone = new System.Threading.ManualResetEventSlim();
+            void OnOut(string line)
+            {
+                Log.Write("stdout: " + Trim(line));
+                foreach (var e in _engine.Parse(line)) Raise(e);
+            }
+            void OnErr(string line)
+            {
+                Log.Write("stderr: " + Trim(line));
+                lock (stderr) stderr.AppendLine(line);
+            }
+
             try
             {
-                Log.Write($"start: {_psi.FileName} {Trim(_psi.Arguments)}");
-                _process = new Process { StartInfo = _psi };
-                _process.ErrorDataReceived += (s, e) =>
+                string exitCode;
+                if (ProcessHost.IsWine)
                 {
-                    if (e.Data == null) { stderrDone.Set(); return; }
-                    Log.Write("stderr: " + Trim(e.Data));
-                    lock (stderr) stderr.AppendLine(e.Data);
-                };
-                try { _process.Start(); }
-                catch (Exception ex)
-                {
-                    Log.Write("could not start: " + ex);
-                    Raise(AgentEvent.Of(AgentEventKind.Failed, $"Could not start {_engine.Program}: {ex.Message}. Set its path in the RhinoCC settings."));
-                    return;
+                    _job = new WineJob(_invocation, _settings);
+                    if (_cancelled) _job.Cancel();
+                    exitCode = _job.Run(OnOut, OnErr) ?? "unknown";
                 }
-                _process.BeginErrorReadLine();
-                try
+                else
                 {
-                    _process.StandardInput.Write(_stdin);
-                    _process.StandardInput.Close();
+                    exitCode = RunProcess(OnOut, OnErr, Raise);
+                    if (exitCode == null) return; // could not start; already reported
                 }
-                catch { /* the process may have exited already; its output says why */ }
-
-                string line;
-                while ((line = _process.StandardOutput.ReadLine()) != null)
-                {
-                    Log.Write("stdout: " + Trim(line));
-                    foreach (var e in _engine.Parse(line)) Raise(e);
-                }
-                // Under Wine a Unix child can have no usable process handle; then there is no exit code, but its stderr still says why it ended
-                var exitCode = "unknown";
-                try
-                {
-                    _process.WaitForExit();
-                    exitCode = _process.ExitCode.ToString();
-                }
-                catch (Exception ex) { Log.Write("no exit code: " + ex.Message); }
-                stderrDone.Wait(3000);
                 Log.Write("exited with code " + exitCode);
 
                 if (_cancelled) Raise(AgentEvent.Of(AgentEventKind.Failed, "Stopped."));
@@ -104,10 +93,48 @@ namespace RhinoCC.Core.Agents
                 Log.Write("run failed: " + ex);
                 Raise(AgentEvent.Of(AgentEventKind.Failed, ex.Message));
             }
+        }
+
+        /// <summary>Starts the CLI directly (native Windows). Returns the exit code, or null if it could not be started.</summary>
+        private string RunProcess(Action<string> onOut, Action<string> onErr, Action<AgentEvent> raise)
+        {
+            var stderrDone = new ManualResetEventSlim();
+            try
+            {
+                Log.Write($"start: {_psi.FileName} {Trim(_psi.Arguments)}");
+                _process = new Process { StartInfo = _psi };
+                _process.ErrorDataReceived += (s, e) =>
+                {
+                    if (e.Data == null) { stderrDone.Set(); return; }
+                    onErr(e.Data);
+                };
+                try { _process.Start(); }
+                catch (Exception ex)
+                {
+                    Log.Write("could not start: " + ex);
+                    raise(AgentEvent.Of(AgentEventKind.Failed, $"Could not start {_engine.Program}: {ex.Message}. Set its path in the RhinoCC settings."));
+                    return null;
+                }
+                _process.BeginErrorReadLine();
+                try
+                {
+                    _process.StandardInput.Write(_stdin);
+                    _process.StandardInput.Close();
+                }
+                catch { /* the process may have exited already; its output says why */ }
+
+                string line;
+                while ((line = _process.StandardOutput.ReadLine()) != null) onOut(line);
+                _process.WaitForExit();
+                stderrDone.Wait(3000);
+                return _process.ExitCode.ToString();
+            }
             finally
             {
                 try { _process?.Dispose(); } catch { /* nothing to do */ }
             }
         }
+
+        private static string Trim(string s) => s != null && s.Length > 600 ? s.Substring(0, 600) + $"… ({s.Length} chars)" : s;
     }
 }
