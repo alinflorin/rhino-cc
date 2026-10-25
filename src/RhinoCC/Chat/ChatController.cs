@@ -54,6 +54,9 @@ namespace RhinoCC.Chat
             _server = new McpServer(_cli, () => BuildInstructions());
         }
 
+        /// <summary>Runs a line of the fake CLI like the agent would. Not from the UI thread: it waits for that thread.</summary>
+        public RhinoCC.Core.Cli.CliResult RunCli(string line) => _cli.Execute(line);
+
         public string McpUrl => _server.IsRunning ? _server.Url(false) : null;
 
         public string BuildInstructions(bool onUiThread = false)

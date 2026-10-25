@@ -21,15 +21,16 @@ namespace RhinoCC.Cli
         {
             cli.Register(new CommandSpec("analyze", "Analysis",
                 "analyze [ID... | --selected | --layer NAME | --name NAME] [--metal NAME] [--min-wall MM] [--angle DEG] [--no-walls] [--no-overhang]",
-                "Checks the model's own solids for casting and printing: validity and closedness (open edges, flipped orientation), volume, weight in a metal, size against the printer's build volume, thinnest walls (with where) and overhangs with the best tilt. Without targets: every visible brep, extrusion and mesh. Wall and overhang figures are samples, a screen, not a proof.", a =>
+                "Checks the model's own solids for casting and printing: validity and closedness (open edges, flipped orientation), volume, weight in a metal, size against the printer's build volume, thinnest walls (with where) and overhangs with the best tilt. Without targets: every visible brep, extrusion and mesh except the generated supports and sprue. Defaults (metal, minimum wall, overhang angle) come from the model's print settings (`print`). Wall and overhang figures are samples, a screen, not a proof.", a =>
             {
                 var doc = RhinoCommands.Doc();
-                var metal = a.Opt("metal") ?? "sterling";
+                var ps = PrintOps.Settings(doc);
+                var metal = a.Opt("metal") ?? ps.Metal;
                 double density;
                 try { density = Metals.Lookup(metal); }
                 catch (ArgumentException e) { throw new CliException(e.Message); }
-                var minWall = a.OptNumber("min-wall") ?? 0.8;
-                var angle = a.OptNumber("angle") ?? 45;
+                var minWall = a.OptNumber("min-wall") ?? ps.MinWall;
+                var angle = a.OptNumber("angle") ?? ps.Supports.OverhangAngle;
                 if (minWall <= 0) throw new CliException("--min-wall must be positive");
                 if (angle <= 0 || angle >= 90) throw new CliException("--angle must be between 0 and 90");
                 var walls = !a.Has("no-walls");
@@ -56,9 +57,9 @@ namespace RhinoCC.Cli
                 if (totalVol > 0) sb.AppendLine($"total: volume {Fmt.N(totalVol)} mm³, {Fmt.N(Metals.Grams(totalVol, density))} g {metal}");
                 sb.Append(problems.Count == 0 ? "no problems found" : "problems:\n  " + string.Join("\n  ", problems));
                 return CliResult.Ok(sb.ToString());
-            }).Opt("metal", "NAME", "Metal for the weight (default sterling): " + Metals.Names + ".")
-              .Opt("min-wall", "MM", "Thinnest acceptable wall in mm (default 0.8).")
-              .Opt("angle", "DEG", "Overhang limit: faces within DEG of facing straight down need support (default 45).")
+            }).Opt("metal", "NAME", "Metal for the weight (default: the print setting): " + Metals.Names + ".")
+              .Opt("min-wall", "MM", "Thinnest acceptable wall in mm (default: the print setting).")
+              .Opt("angle", "DEG", "Overhang limit: faces within DEG of facing straight down need support (default: the print setting).")
               .Flag("no-walls", "Skip the wall-thickness check (the slow one).").Flag("no-overhang", "Skip the overhang check.")
               .Flag("selected", "Analyze the current selection.").Opt("layer", "NAME", "Only this layer (full path).").Opt("name", "NAME", "Only objects with this exact name.")
               .Example("analyze --selected --metal 18k")
@@ -75,7 +76,7 @@ namespace RhinoCC.Cli
                 all = all.Where(o => o.Attributes.LayerIndex >= 0 && doc.Layers[o.Attributes.LayerIndex].FullPath.Equals(a.Opt("layer"), StringComparison.OrdinalIgnoreCase));
             if (a.Has("name"))
                 all = all.Where(o => string.Equals(o.Name, a.Opt("name"), StringComparison.OrdinalIgnoreCase));
-            return all.Where(o => o.Geometry is Brep || o.Geometry is Extrusion || o.Geometry is Mesh).ToList();
+            return all.Where(o => (o.Geometry is Brep || o.Geometry is Extrusion || o.Geometry is Mesh) && !PrintOps.IsOurs(doc, o)).ToList();
         }
 
         /// <summary>Writes the report lines of one object; returns its volume (mm³) when it is a closed solid, else 0.</summary>

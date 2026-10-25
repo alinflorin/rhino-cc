@@ -27,6 +27,7 @@ namespace RhinoCC.Cli
             Materials(cli);
             Viewing(cli);
             AnalyzeCommand.Register(cli);
+            PrintCommands.Register(cli);
             ContactsCommand.Register(cli);
             PoseCommands.Register(cli);
             Scripting(cli);
