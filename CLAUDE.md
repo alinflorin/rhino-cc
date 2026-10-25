@@ -49,7 +49,7 @@ Rule of thumb: logic that doesn't need Rhino goes in Core and gets a test. Only 
 
     ./build.sh                    # net7.0-windows build
     ./build.sh all                # + net48
-    dotnet test src/RhinoCC.Tests # 47 tests, none need Rhino or network
+    dotnet test src/RhinoCC.Tests # 52 tests, none need Rhino or network
     RHINOCC_LIVE=claude dotnet test src/RhinoCC.Tests --filter Live   # runs the real claude CLI against a fake Rhino (uses your account); RHINOCC_LIVE=codex likewise
 
 Builds on Linux (`EnableWindowsTargeting`). RhinoCommon versions differ per target on purpose: `net48` -> 7.13, `net7.0-windows` -> 8.17
@@ -62,6 +62,8 @@ Builds on Linux (`EnableWindowsTargeting`). RhinoCommon versions differ per targ
   Under Wine (`ntdll!wine_get_version`, `ProcessHost.IsWine`) **CreateProcess cannot start a Unix program with piped stdio** (.NET got a process with no handle, no output, no exit code), but `cmd /c start /unix` can.
   So `WineJob` writes a per-turn folder `/tmp/rhinocc/job-<id>` (`Z:\tmp\rhinocc\...`) with `in` (stdin), `run.sh` (runs `<HostShell> -lc 'exec "$0" "$@"' <program> <args>` with stdio redirected to `in`/`out`/`err`, then writes `code`), and `kill.sh`;
   starts it with `start /unix /bin/sh run.sh`, and follows `out`/`err` by polling. The folder is deleted after the turn. Instructions are therefore inside `run.sh` for the length of a turn (they used to be command-line only).
+  **Better path:** `scripts/install-relay.sh` installs `scripts/rhinocc-relay.py` as a systemd user service on `127.0.0.1:45601` (token in `~/.config/rhinocc/relay.json`). `RelayJob.Create` uses it when the config is found (through `$HOME` or `Z:\home\*`) and the port answers, else `WineJob`.
+  It runs `claude` / `codex` (nothing else) through the user's login shell with real pipes; protocol is in the script's docstring; closing the connection stops the program. `RelayTests` run the real script with a fake `claude`.
   If `claude` isn't on the login PATH, set the full path in the settings.
   Things that can't ride on a command line go through an **exchange folder** (`Turn.ExchangeLocalDir` / `ExchangeHostDir`): `Z:\tmp\rhinocc` as the plugin sees it, `/tmp/rhinocc` as the CLI does
   (on native Windows both are `%TEMP%\rhinocc`). Only Codex's pictures (`-i`) go there. Instructions are command-line arguments for both agents (Claude: `--append-system-prompt`, Codex: `-c developer_instructions=...`); on native Windows they share the 32K command line, so both engines cap them at 29,000 characters (`InstructionLimit`);

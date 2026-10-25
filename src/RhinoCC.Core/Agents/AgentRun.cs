@@ -14,7 +14,7 @@ namespace RhinoCC.Core.Agents
         private readonly string _stdin;
         private readonly Invocation _invocation;
         private readonly AgentSettings _settings;
-        private WineJob _job;
+        private IHostJob _job;
         private Process _process;
         private volatile bool _cancelled;
 
@@ -73,7 +73,7 @@ namespace RhinoCC.Core.Agents
                 string exitCode;
                 if (ProcessHost.IsWine)
                 {
-                    _job = new WineJob(_invocation, _settings);
+                    _job = RelayJob.Create(_invocation, _settings);
                     if (_cancelled) _job.Cancel();
                     exitCode = _job.Run(OnOut, OnErr) ?? "unknown";
                 }

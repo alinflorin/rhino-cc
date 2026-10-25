@@ -12,7 +12,7 @@ namespace RhinoCC.Core.Agents
     /// detaches it, so the program runs from a small script that reads its stdin from a file and writes stdout, stderr
     /// and its exit code to files, which are followed from this side. The files live in the exchange folder for one turn.
     /// </summary>
-    public sealed class WineJob
+    public sealed class WineJob : IHostJob
     {
         private readonly Invocation _inv;
         private readonly AgentSettings _settings;

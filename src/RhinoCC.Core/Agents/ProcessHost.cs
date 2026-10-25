@@ -87,7 +87,7 @@ namespace RhinoCC.Core.Agents
             {
                 if (IsWine)
                 {
-                    var job = new WineJob(inv, settings);
+                    var job = RelayJob.Create(inv, settings);
                     var lines = new List<string>();
                     string code = null;
                     var task = System.Threading.Tasks.Task.Run(() => code = job.Run(l => { lock (lines) lines.Add(l); }, l => { lock (lines) lines.Add(l); }));
