@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:   # builds the zips as a run artifact, without publishing a release
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Version
+        id: v
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.0.0-manual.${GITHUB_RUN_NUMBER}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        run: dotnet test src/RhinoCC.Tests -c Release
+
+      - name: Build and zip
+        run: |
+          v='${{ steps.v.outputs.version }}'
+          dotnet build src/RhinoCC -c Release -p:Version="$v"
+          mkdir dist
+          pack() { # <target folder> <zip name>
+            local d="src/RhinoCC/bin/Release/$1"
+            test -f "$d/RhinoCC.rhp" -a -f "$d/RhinoCC.Core.dll"
+            rm -rf stage && mkdir -p stage/RhinoCC
+            cp "$d/RhinoCC.rhp" "$d/RhinoCC.Core.dll" stage/RhinoCC/
+            cp "$d"/RhinoCC.deps.json stage/RhinoCC/ 2>/dev/null || true
+            cp README.md stage/RhinoCC/
+            (cd stage && zip -r "../dist/$2" RhinoCC)
+          }
+          pack net48 "RhinoCC-$v-rhino7.zip"
+          pack net7.0-windows "RhinoCC-$v-rhino8.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RhinoCC-${{ steps.v.outputs.version }}
+          path: dist/*.zip
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.zip --title "$GITHUB_REF_NAME" --generate-notes \
+            --notes "Install: right-click the zip > Properties > Unblock (if shown), extract to a permanent folder, then in Rhino run PlugInManager > Install and pick RhinoCC.rhp. Rhino 7: use the rhino7 zip; Rhino 8: the rhino8 zip."

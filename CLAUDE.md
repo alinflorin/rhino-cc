@@ -86,6 +86,11 @@ Builds on Linux (`EnableWindowsTargeting`). RhinoCommon versions differ per targ
 Compiling the vendored Tectopus code for net48 gave ~80 errors: .NET Framework gaps (`double.IsFinite`, `Math.Clamp`, `JObject.ContainsKey` in Newtonsoft 9) and real RhinoCommon 7 gaps (`PolylineCurve.CreateConvexHull2d`, `Curve.ControlPolygon`, `AddGeometry(occluding_sections)`); Kangaroo 2.5.3 needs RhinoCommon >= 7.24.
 The owner chose parity over features: remove stability and everything else that isn't on both versions. Re-adding any of it means porting to Rhino 7 first.
 
+## CI and releases
+
+- `.github/workflows/ci.yml`: PRs, pushes to main and manual runs build + test (`CONFIG=Release ./build.sh all`) on ubuntu.
+- `.github/workflows/release.yml`: a `v*` tag builds with `-p:Version` from the tag and publishes `RhinoCC-<v>-rhino7.zip` (net48) and `-rhino8.zip` (net7.0-windows) to a GitHub Release. Manual run only uploads the zips as an artifact. Users install by hand (Unblock, extract, PlugInManager > Install). Not run on GitHub yet.
+
 ## Conventions
 
 - C# `LangVersion latest`, nullable off, 4-space indent, no regions. Comments say *why*, short.
