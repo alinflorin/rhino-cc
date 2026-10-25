@@ -16,10 +16,19 @@ namespace RhinoCC.Core.Agents
         public string Label => "Codex";
         public string Program => "codex";
 
-        // Codex's model list changes often and `codex debug models` lists the real one; blank means "its default".
-        public IReadOnlyList<ModelInfo> Models { get; } = new ModelInfo[0];
+        // Only suggestions: the model box accepts any name, and Codex's real list changes often (`codex debug models`). Blank means "its default".
+        public IReadOnlyList<ModelInfo> Models { get; } = new[]
+        {
+            new ModelInfo { Id = "gpt-6.1-sol", Label = "GPT-6.1 Sol" },
+            new ModelInfo { Id = "gpt-6-astra", Label = "GPT-6 Astra" },
+            new ModelInfo { Id = "gpt-6-sol", Label = "GPT-6 Sol" },
+            new ModelInfo { Id = "gpt-6-luna", Label = "GPT-6 Luna" },
+            new ModelInfo { Id = "gpt-5.6-sol", Label = "GPT-5.6 Sol" },
+            new ModelInfo { Id = "gpt-5.6-terra", Label = "GPT-5.6 Terra" },
+            new ModelInfo { Id = "gpt-5.6-luna", Label = "GPT-5.6 Luna" },
+        };
 
-        public IReadOnlyList<string> Efforts { get; } = new[] { "low", "medium", "high" };
+        public IReadOnlyList<string> Efforts { get; } = new[] { "low", "medium", "high", "xhigh", "max", "ultra" };
 
         // travels as a -c override, so it shares the command line (Windows: 32K characters) with everything else
         public int InstructionLimit => 29000;
