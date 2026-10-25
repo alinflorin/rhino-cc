@@ -47,13 +47,14 @@ namespace RhinoCC.Core.Agents
             }
 
             var stderr = new StringBuilder();
+            var stderrDone = new System.Threading.ManualResetEventSlim();
             try
             {
                 Log.Write($"start: {_psi.FileName} {Trim(_psi.Arguments)}");
                 _process = new Process { StartInfo = _psi };
                 _process.ErrorDataReceived += (s, e) =>
                 {
-                    if (e.Data == null) return;
+                    if (e.Data == null) { stderrDone.Set(); return; }
                     Log.Write("stderr: " + Trim(e.Data));
                     lock (stderr) stderr.AppendLine(e.Data);
                 };
@@ -78,8 +79,16 @@ namespace RhinoCC.Core.Agents
                     Log.Write("stdout: " + Trim(line));
                     foreach (var e in _engine.Parse(line)) Raise(e);
                 }
-                _process.WaitForExit();
-                Log.Write($"exited with code {_process.ExitCode}");
+                // Under Wine a Unix child can have no usable process handle; then there is no exit code, but its stderr still says why it ended
+                var exitCode = "unknown";
+                try
+                {
+                    _process.WaitForExit();
+                    exitCode = _process.ExitCode.ToString();
+                }
+                catch (Exception ex) { Log.Write("no exit code: " + ex.Message); }
+                stderrDone.Wait(3000);
+                Log.Write("exited with code " + exitCode);
 
                 if (_cancelled) Raise(AgentEvent.Of(AgentEventKind.Failed, "Stopped."));
                 else if (!finished)
@@ -87,7 +96,7 @@ namespace RhinoCC.Core.Agents
                     string err;
                     lock (stderr) err = stderr.ToString().Trim();
                     if (err.Length > 1500) err = err.Substring(err.Length - 1500);
-                    Raise(AgentEvent.Of(AgentEventKind.Failed, err.Length > 0 ? err : $"{_engine.Program} exited with code {_process.ExitCode} without an answer."));
+                    Raise(AgentEvent.Of(AgentEventKind.Failed, err.Length > 0 ? err : $"{_engine.Program} exited (code {exitCode}) without an answer and printed nothing on stderr."));
                 }
             }
             catch (Exception ex)
