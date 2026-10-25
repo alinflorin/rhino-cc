@@ -281,7 +281,8 @@ namespace RhinoCC.Chat
                 {
                     _shownRtf = rtf;
                     _transcript.Rtf = rtf;
-                    try { var n = _transcript.Text.Length; _transcript.Selection = new Range<int>(n, n - 1); } catch { /* scrolling is a nicety */ }
+                    // setting the text puts the view back at the top; Append with scrollToCursor moves the caret to the end and scrolls there
+                    try { _transcript.Append("", true); } catch { /* scrolling is a nicety */ }
                 }
                 _send.Text = _chat.Running ? "Stop" : "Send";
                 ShowStatus();
