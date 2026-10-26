@@ -202,6 +202,19 @@ namespace RhinoCC.Tests
         }
     }
 
+    public class NativeExeTests
+    {
+        [Fact]
+        public void FindsTheExeOnThePathInOrder()
+        {
+            var b = System.IO.Path.Combine("b", "claude.exe");
+            var c = System.IO.Path.Combine("c", "claude.exe");
+            var hit = ProcessHost.FindExe("claude", new[] { "", "a", "\"b\"", "c" }, f => f == b || f == c);
+            Assert.Equal(b, hit);
+            Assert.Null(ProcessHost.FindExe("codex", new[] { @"C:\a" }, f => false));
+        }
+    }
+
     public class ConversationTests
     {
         internal sealed class Memory : IKeyValueStore

@@ -62,6 +62,12 @@ namespace RhinoCC.Core.Agents
                 argv.AddRange(new[] { "-lc", "cd /tmp && exec \"$0\" \"$@\"", program });
                 argv.AddRange(inv.Args);
             }
+            else if (onWindows && !System.IO.Path.HasExtension(program) && FindNative(program) is string native)
+            {
+                // a native install is a real .exe: start it directly, so the 32K limit applies, not cmd.exe's 8,191
+                psi.FileName = native;
+                argv.AddRange(inv.Args);
+            }
             else if (onWindows && !System.IO.Path.HasExtension(program))
             {
                 // npm installs the CLIs as .cmd shims, which only cmd.exe can start
@@ -76,6 +82,55 @@ namespace RhinoCC.Core.Agents
             }
             psi.Arguments = JoinArguments(argv);
             return psi;
+        }
+
+        /// <summary>The <c>.exe</c> behind a bare program name on Windows: PATH first, then where the installers put it. Null when there is none (an npm <c>.cmd</c> shim then needs cmd.exe).</summary>
+        public static string FindNative(string name)
+        {
+            if (name.IndexOfAny(new[] { '\\', '/' }) >= 0) return null;
+            var dirs = new List<string>((Environment.GetEnvironmentVariable("PATH") ?? "").Split(System.IO.Path.PathSeparator));
+            var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (profile.Length > 0) dirs.Add(System.IO.Path.Combine(profile, ".local", "bin")); // Claude's native installer
+            var found = FindExe(name, dirs, System.IO.File.Exists);
+            if (found != null) return found;
+            // Codex from npm keeps the real binary deep inside the package; the shim in %APPDATA%\npm only launches it
+            var npm = Environment.GetEnvironmentVariable("APPDATA");
+            if (name == "codex" && !string.IsNullOrEmpty(npm))
+                return FindBelow(System.IO.Path.Combine(npm, "npm", "node_modules", "@openai", "codex"), "codex.exe", 7);
+            return null;
+        }
+
+        public static string FindExe(string name, IEnumerable<string> dirs, Func<string, bool> exists)
+        {
+            foreach (var dir in dirs)
+            {
+                if (string.IsNullOrWhiteSpace(dir)) continue;
+                try
+                {
+                    var file = System.IO.Path.Combine(dir.Trim().Trim('"'), name + ".exe");
+                    if (exists(file)) return file;
+                }
+                catch (ArgumentException) { /* a bad PATH entry */ }
+            }
+            return null;
+        }
+
+        private static string FindBelow(string dir, string file, int depth)
+        {
+            try
+            {
+                if (!System.IO.Directory.Exists(dir)) return null;
+                var hit = System.IO.Path.Combine(dir, file);
+                if (System.IO.File.Exists(hit)) return hit;
+                if (depth == 0) return null;
+                foreach (var d in System.IO.Directory.GetDirectories(dir))
+                {
+                    var found = FindBelow(d, file, depth - 1);
+                    if (found != null) return found;
+                }
+            }
+            catch (Exception) { /* unreadable folder */ }
+            return null;
         }
 
         /// <summary>Runs <c>PROGRAM --version</c> the way a real turn would start it, to tell the user whether the CLI can be found.</summary>
