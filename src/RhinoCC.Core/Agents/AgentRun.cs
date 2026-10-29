@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using System.Threading;
@@ -60,7 +61,10 @@ namespace RhinoCC.Core.Agents
             void OnOut(string line)
             {
                 Log.Write("stdout: " + Trim(line));
-                foreach (var e in _engine.Parse(line)) Raise(e);
+                IReadOnlyList<AgentEvent> events;
+                try { events = _engine.Parse(line); }
+                catch (Exception ex) { Log.Write("could not read line: " + ex.Message); return; } // one odd line must not end the turn
+                foreach (var e in events) Raise(e);
             }
             void OnErr(string line)
             {
@@ -96,6 +100,7 @@ namespace RhinoCC.Core.Agents
             catch (Exception ex)
             {
                 Log.Write("run failed: " + ex);
+                Cancel(); // else the CLI keeps running and holds its session ("already has an active writer")
                 Raise(AgentEvent.Of(AgentEventKind.Failed, ex.Message));
             }
         }
@@ -136,8 +141,24 @@ namespace RhinoCC.Core.Agents
             }
             finally
             {
+                KillTree(_process);
                 try { _process?.Dispose(); } catch { /* nothing to do */ }
             }
+        }
+
+        /// <summary>A turn that ended early must not leave the CLI running: it would keep its session locked for the next turn.</summary>
+        private static void KillTree(Process p)
+        {
+            try
+            {
+                if (p == null || p.HasExited) return;
+                // Kill() alone leaves children (node shims, cmd) behind on .NET Framework
+                if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+                    using (var t = Process.Start(new ProcessStartInfo("taskkill", $"/PID {p.Id} /T /F") { CreateNoWindow = true, UseShellExecute = false }))
+                        t?.WaitForExit(3000);
+                if (!p.HasExited) p.Kill();
+            }
+            catch { /* already gone */ }
         }
 
         private static string Trim(string s) => s != null && s.Length > 600 ? s.Substring(0, 600) + $"… ({s.Length} chars)" : s;

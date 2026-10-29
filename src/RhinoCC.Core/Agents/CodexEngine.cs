@@ -80,7 +80,7 @@ namespace RhinoCC.Core.Agents
             try { v = JObject.Parse(line); }
             catch { return events; }
 
-            var item = v["item"];
+            var item = v["item"] as JObject; // can be null or a plain value in other events
             var itemType = (string)item?["type"];
             switch ((string)v["type"])
             {
@@ -95,8 +95,8 @@ namespace RhinoCC.Core.Agents
                     if (itemType == "mcp_tool_call")
                     {
                         var failed = (string)item["status"] == "failed" || (item["error"] != null && item["error"].Type != JTokenType.Null);
-                        var parts = Parts(item["result"]?["content"]);
-                        var message = (string)item["error"]?["message"];
+                        var parts = Parts((item["result"] as JObject)?["content"]);
+                        var message = item["error"] is JObject eo ? (string)eo["message"] : item["error"]?.Type == JTokenType.String ? (string)item["error"] : null;
                         if (message != null) parts.Add(new ToolPart { Type = "text", Text = message });
                         events.Add(new AgentEvent { Kind = AgentEventKind.ToolEnd, Id = (string)item["id"], Parts = parts, Error = failed });
                     }
@@ -115,7 +115,7 @@ namespace RhinoCC.Core.Agents
                     events.Add(AgentEvent.Of(AgentEventKind.Done));
                     break;
                 case "turn.failed":
-                    events.Add(AgentEvent.Of(AgentEventKind.Failed, (string)v["error"]?["message"] ?? "the agent failed"));
+                    events.Add(AgentEvent.Of(AgentEventKind.Failed, (v["error"] as JObject)?["message"]?.ToString() ?? "the agent failed"));
                     break;
                 case "error":
                     if (v["message"] != null) events.Add(AgentEvent.Of(AgentEventKind.Warn, (string)v["message"]));
@@ -203,6 +203,7 @@ namespace RhinoCC.Core.Agents
             if (content is JArray arr)
                 foreach (var b in arr)
                 {
+                    if (!(b is JObject)) continue;
                     var t = (string)b["type"];
                     if (t == "text") parts.Add(new ToolPart { Type = "text", Text = (string)b["text"] });
                     else if (t == "image") parts.Add(new ToolPart { Type = "image", Mime = (string)b["mimeType"], Data = (string)b["data"] });

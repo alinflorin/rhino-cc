@@ -85,12 +85,12 @@ namespace RhinoCC.Core.Agents
                         events.Add(AgentEvent.Of(AgentEventKind.Session, (string)v["session_id"]));
                     break;
                 case "stream_event":
-                    var e = v["event"];
+                    var e = v["event"] as JObject; // fields below can be null or plain values
                     var et = (string)e?["type"];
-                    var delta = e?["delta"];
-                    if (et == "content_block_start" && (string)e["content_block"]?["type"] == "text")
+                    var delta = e?["delta"] as JObject;
+                    if (et == "content_block_start" && (string)(e["content_block"] as JObject)?["type"] == "text")
                         events.Add(AgentEvent.Of(AgentEventKind.Break));
-                    else if (et == "content_block_start" && (string)e["content_block"]?["type"] == "thinking")
+                    else if (et == "content_block_start" && (string)(e["content_block"] as JObject)?["type"] == "thinking")
                         events.Add(AgentEvent.Of(AgentEventKind.Thought, "\n\n"));
                     else if (et == "content_block_delta" && (string)delta?["type"] == "thinking_delta" && delta["thinking"] != null)
                         events.Add(AgentEvent.Of(AgentEventKind.Thought, (string)delta["thinking"]));
@@ -98,18 +98,18 @@ namespace RhinoCC.Core.Agents
                         events.Add(AgentEvent.Of(AgentEventKind.Delta, (string)delta["text"]));
                     break;
                 case "rate_limit_event":
-                    var windows = v["rate_limit_info"]?["unifiedWindows"];
+                    var windows = (v["rate_limit_info"] as JObject)?["unifiedWindows"] as JObject;
                     var usage = new UsageInfo();
                     foreach (var pair in new[] { new[] { "five_hour", "5h" }, new[] { "seven_day", "weekly" } })
                     {
-                        var w = windows?[pair[0]];
+                        var w = windows?[pair[0]] as JObject;
                         if (w?["utilization"] == null) continue;
                         usage.Limits.Add(new LimitInfo { Label = pair[1], Percent = (double)w["utilization"] * 100, ResetsAt = (long?)w["resetsAt"] });
                     }
                     if (usage.Limits.Count > 0) events.Add(new AgentEvent { Kind = AgentEventKind.Usage, Usage = usage });
                     break;
                 case "assistant":
-                    if (v["message"]?["usage"] is JObject u)
+                    if ((v["message"] as JObject)?["usage"] is JObject u)
                     {
                         long N(string k) => (long?)u[k] ?? 0;
                         events.Add(new AgentEvent
@@ -118,10 +118,10 @@ namespace RhinoCC.Core.Agents
                             Usage = new UsageInfo { ContextUsed = N("input_tokens") + N("cache_read_input_tokens") + N("cache_creation_input_tokens") + N("output_tokens") },
                         });
                     }
-                    if (v["message"]?["content"] is JArray blocks)
+                    if ((v["message"] as JObject)?["content"] is JArray blocks)
                         foreach (var b in blocks)
                         {
-                            if ((string)b["type"] != "tool_use") continue;
+                            if (!(b is JObject) || (string)b["type"] != "tool_use") continue;
                             var name = (string)b["name"] ?? "tool";
                             var prefix = "mcp__" + ServerName + "__";
                             if (name.StartsWith(prefix)) name = name.Substring(prefix.Length);
@@ -129,10 +129,10 @@ namespace RhinoCC.Core.Agents
                         }
                     break;
                 case "user":
-                    if (v["message"]?["content"] is JArray results)
+                    if ((v["message"] as JObject)?["content"] is JArray results)
                         foreach (var b in results)
                         {
-                            if ((string)b["type"] != "tool_result") continue;
+                            if (!(b is JObject) || (string)b["type"] != "tool_result") continue;
                             events.Add(new AgentEvent
                             {
                                 Kind = AgentEventKind.ToolEnd,
@@ -149,7 +149,7 @@ namespace RhinoCC.Core.Agents
                         long? window = null;
                         if (v["modelUsage"] is JObject mu)
                             foreach (var m in mu.Properties())
-                                if (window == null) window = (long?)m.Value["contextWindow"];
+                                if (window == null) window = (long?)(m.Value as JObject)?["contextWindow"];
                         if (window != null) events.Add(new AgentEvent { Kind = AgentEventKind.Usage, Usage = new UsageInfo { ContextWindow = window } });
                         events.Add(AgentEvent.Of(AgentEventKind.Done));
                     }
@@ -179,10 +179,12 @@ namespace RhinoCC.Core.Agents
             if (content is JArray arr)
                 foreach (var b in arr)
                 {
+                    if (!(b is JObject)) continue;
                     var t = (string)b["type"];
+                    var src = b["source"] as JObject;
                     if (t == "text") parts.Add(new ToolPart { Type = "text", Text = (string)b["text"] });
                     else if (t == "image")
-                        parts.Add(new ToolPart { Type = "image", Mime = (string)b["source"]?["media_type"], Data = (string)b["source"]?["data"] });
+                        parts.Add(new ToolPart { Type = "image", Mime = (string)src?["media_type"], Data = (string)src?["data"] });
                 }
             return parts;
         }
